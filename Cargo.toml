@@ -1,0 +1,88 @@
+[package]
+name = "chisme"
+version = "0.2.0"
+edition = "2024"
+description = "Screen recorder, live-streaming studio and clip maker for Windows"
+authors = ["Jorge (LordVayron)", "079 AI Labs"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/LordVayron/chisme"
+homepage = "https://github.com/LordVayron/chisme"
+readme = "README.md"
+keywords = ["screen-recorder", "streaming", "windows", "rtmp", "obs"]
+categories = ["multimedia::video", "multimedia::audio"]
+
+[dependencies]
+ab_glyph = "0.2.32"
+anyhow = "1.0.104"
+base64 = "0.23.1"
+bytes = "1.12.1"
+clap = { version = "4.6.7", features = ["derive"] }
+ctrlc = "3.5.2"
+eframe = "0.36"
+global-hotkey = "0.8"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+mp4 = "0.14.0"
+native-tls = "0.2.18"
+nnnoiseless = { version = "0.5.2", default-features = false }
+raw-window-handle = "0.6"
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+sha2 = "0.11.1"
+tract-onnx = "0.23.8"
+tray-icon = "0.26"
+ureq = "3"
+whisper-rs = "0.16"
+windows = { version = "0.62.2", features = [
+    "Foundation",
+    "Graphics",
+    "Graphics_Capture",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_MediaFoundation",
+    "Win32_Media_Multimedia",
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_System_Ole",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Variant",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_System_Performance",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+windows-core = "0.62"
+
+[profile.release]
+debug = 1
+
+# Installer builds: smaller and a little faster.
+[profile.dist]
+inherits = "release"
+debug = 0
+strip = true
+lto = "thin"
+codegen-units = 1
+
+[build-dependencies]
+winresource = "0.1.34"

@@ -1,0 +1,14 @@
+# whisper.cpp (subtitles) needs CMake and LLVM's libclang (for its Rust
+# bindings): `winget install Kitware.CMake LLVM.LLVM`, or point CMAKE and
+# LIBCLANG_PATH at existing installs.
+[env]
+# MSVC can't detect the CPU (GGML_NATIVE), which leaves whisper.cpp without
+# SIMD and ~20x slower. AVX2/FMA/F16C: every x64 CPU since ~2015.
+GGML_NATIVE = "OFF"
+GGML_AVX = "ON"
+GGML_AVX2 = "ON"
+GGML_FMA = "ON"
+GGML_F16C = "ON"
+# The cmake crate replaces MSVC's Release flags and drops /O2.
+CMAKE_C_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
+CMAKE_CXX_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
