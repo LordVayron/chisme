@@ -371,6 +371,181 @@ impl Drop for Monitor {
     }
 }
 
+/// The starter sound pad: short effects synthesized by Chisme (so they
+/// carry nobody's copyright), written once to `%APPDATA%\Chisme\sonidos`.
+pub fn starter_sounds() -> Vec<Item> {
+    let dir = crate::settings::Settings::path().parent().map(|p| p.join("sonidos")).unwrap_or_default();
+    let _ = std::fs::create_dir_all(&dir);
+    let group = crate::i18n::l("Sound pad", "Efectos").to_string();
+    let sounds: [(&str, &str, fn() -> Vec<f32>); 6] = [
+        ("applause", crate::i18n::l("Applause", "Aplausos"), synth::applause),
+        ("drum-roll", crate::i18n::l("Drum roll", "Redoble"), synth::drum_roll),
+        ("ding", "Ding", synth::ding),
+        ("whoosh", "Whoosh", synth::whoosh),
+        ("buzzer", crate::i18n::l("Buzzer", "Chicharra"), synth::buzzer),
+        ("rimshot", "Ba-dum-tss", synth::rimshot),
+    ];
+    sounds
+        .iter()
+        .filter_map(|(file, name, make)| {
+            let path = dir.join(format!("{file}.wav"));
+            if !path.is_file() {
+                synth::write_wav(&path, &make()).ok()?;
+            }
+            Some(Item { name: name.to_string(), path: path.to_string_lossy().into_owned(), kind: Kind::Sound, volume: 1.0, group: group.clone() })
+        })
+        .collect()
+}
+
+mod synth {
+    use std::f32::consts::TAU;
+
+    const RATE: f32 = 48000.0;
+
+    /// A tiny deterministic noise source.
+    struct Noise(u32);
+    impl Noise {
+        fn next(&mut self) -> f32 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 17;
+            self.0 ^= self.0 << 5;
+            self.0 as f32 / u32::MAX as f32 * 2.0 - 1.0
+        }
+    }
+
+    fn len(secs: f32) -> usize {
+        (secs * RATE) as usize
+    }
+
+    /// Mono samples to a 48 kHz 16-bit stereo WAV.
+    pub fn write_wav(path: &std::path::Path, mono: &[f32]) -> std::io::Result<()> {
+        let peak = mono.iter().fold(0.0f32, |a, v| a.max(v.abs())).max(1e-6);
+        let k = 0.8 / peak;
+        let data_len = (mono.len() * 4) as u32;
+        let mut b = Vec::with_capacity(44 + data_len as usize);
+        b.extend(b"RIFF");
+        b.extend((36 + data_len).to_le_bytes());
+        b.extend(b"WAVEfmt ");
+        b.extend(16u32.to_le_bytes());
+        b.extend(1u16.to_le_bytes());
+        b.extend(2u16.to_le_bytes());
+        b.extend(48000u32.to_le_bytes());
+        b.extend((48000u32 * 4).to_le_bytes());
+        b.extend(4u16.to_le_bytes());
+        b.extend(16u16.to_le_bytes());
+        b.extend(b"data");
+        b.extend(data_len.to_le_bytes());
+        for v in mono {
+            let s = ((v * k).clamp(-1.0, 1.0) * 32767.0) as i16;
+            b.extend(s.to_le_bytes());
+            b.extend(s.to_le_bytes());
+        }
+        std::fs::write(path, b)
+    }
+
+    pub fn ding() -> Vec<f32> {
+        (0..len(1.6))
+            .map(|i| {
+                let t = i as f32 / RATE;
+                let env = (-t * 3.2).exp() * (t * 400.0).min(1.0);
+                env * ((TAU * 1318.5 * t).sin() + 0.5 * (TAU * 1975.5 * t).sin() + 0.25 * (TAU * 2637.0 * t).sin())
+            })
+            .collect()
+    }
+
+    pub fn whoosh() -> Vec<f32> {
+        let mut n = Noise(7);
+        let mut lp = 0.0;
+        let total = len(0.9);
+        (0..total)
+            .map(|i| {
+                let x = i as f32 / total as f32;
+                let env = (x * std::f32::consts::PI).sin().powf(2.0);
+                let cutoff = 0.02 + 0.25 * env;
+                lp += cutoff * (n.next() - lp);
+                lp * env
+            })
+            .collect()
+    }
+
+    /// One drum hit: a noise burst through a decay, with some body.
+    fn hit(out: &mut [f32], at: usize, gain: f32, decay: f32, tone: f32, n: &mut Noise) {
+        for k in 0..len(0.25) {
+            let Some(o) = out.get_mut(at + k) else { break };
+            let t = k as f32 / RATE;
+            let env = (-t * decay).exp() * gain;
+            *o += env * (0.7 * n.next() + 0.5 * (TAU * tone * t).sin());
+        }
+    }
+
+    pub fn drum_roll() -> Vec<f32> {
+        let mut out = vec![0.0; len(2.2)];
+        let mut n = Noise(11);
+        let mut t = 0.0;
+        while t < 1.7 {
+            let gain = 0.25 + 0.75 * (t / 1.7);
+            hit(&mut out, len(t), gain, 38.0, 190.0, &mut n);
+            t += 0.042;
+        }
+        hit(&mut out, len(1.75), 1.6, 9.0, 120.0, &mut n);
+        out
+    }
+
+    pub fn applause() -> Vec<f32> {
+        let total = len(3.0);
+        let mut out = vec![0.0; total];
+        let mut n = Noise(23);
+        let mut r = Noise(99);
+        for _ in 0..240 {
+            let at = ((r.next() * 0.5 + 0.5) * (total as f32 - RATE * 0.05)) as usize;
+            let x = at as f32 / total as f32;
+            let gain = (x * std::f32::consts::PI).sin().powf(0.6) * (0.5 + 0.5 * (r.next() * 0.5 + 0.5));
+            for k in 0..len(0.012) {
+                out[at + k] += gain * n.next() * (-(k as f32) / (RATE * 0.004)).exp();
+            }
+        }
+        // Soften the top end.
+        let mut lp = 0.0;
+        out.iter().map(|v| { lp += 0.45 * (v - lp); lp }).collect()
+    }
+
+    pub fn buzzer() -> Vec<f32> {
+        (0..len(0.8))
+            .map(|i| {
+                let t = i as f32 / RATE;
+                let env = (t * 200.0).min(1.0) * ((0.8 - t) * 40.0).clamp(0.0, 1.0);
+                let sq = |f: f32| if (t * f).fract() < 0.5 { 1.0 } else { -1.0 };
+                env * (0.6 * sq(110.0) + 0.4 * sq(116.0))
+            })
+            .collect()
+    }
+
+    pub fn rimshot() -> Vec<f32> {
+        let mut out = vec![0.0; len(1.6)];
+        let mut n = Noise(5);
+        // Ba-dum: two toms with a falling pitch.
+        for (at, f0) in [(0.0, 180.0), (0.18, 140.0)] {
+            let start = len(at);
+            for k in 0..len(0.35) {
+                let t = k as f32 / RATE;
+                let f = f0 * (1.0 - 0.4 * (t * 8.0).min(1.0));
+                out[start + k] += (-t * 9.0).exp() * (TAU * f * t).sin();
+            }
+        }
+        // Tss: a bright, long cymbal.
+        let start = len(0.4);
+        let mut prev = 0.0;
+        for k in 0..len(1.15) {
+            let t = k as f32 / RATE;
+            let x = n.next();
+            let hp = x - prev;
+            prev = x;
+            out[start + k] += 0.6 * hp * (-t * 3.0).exp();
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

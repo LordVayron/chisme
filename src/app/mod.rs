@@ -175,6 +175,11 @@ impl App {
         let mut hotkeys = hotkeys::Registry::new();
         hotkeys.apply(&settings.hotkeys);
         crate::templates::ensure_starters(&settings.pip());
+        if !settings.media_seeded {
+            settings.media.extend(crate::media::starter_sounds());
+            settings.media_seeded = true;
+            let _ = settings.save();
+        }
         let keys = Platform::ALL.iter().map(|p| (*p, crate::win::creds::get(p.id()).unwrap_or_default())).collect();
         App {
             settings,

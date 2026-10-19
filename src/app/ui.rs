@@ -322,7 +322,9 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     let inner = card.shrink(12.0);
     let strip_h = 30.0;
     let controls_h = 64.0;
-    let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h));
+    // The pinned scenes get their own row under the preview.
+    let scenes_h = 56.0;
+    let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h - scenes_h));
     p.rect_filled(view, CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
 
     let st = app.status.clone();
@@ -375,7 +377,7 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     }
 
     // Controls: Record (the white "Start Now" pill), pause, scene, timer.
-    let cy = view.bottom() + controls_h / 2.0;
+    let cy = view.bottom() + scenes_h + controls_h / 2.0;
     let rec_r = Rect::from_min_size(pos2(inner.left() + 6.0, cy - 24.0), vec2(168.0, 48.0));
     let label = if st.recording { l("■  Stop", "■  Detener") } else { l("●  Record", "●  Grabar") };
     let can = st.ready && st.error.is_none();
@@ -433,14 +435,15 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             .pinned
             .iter()
             .filter(|p| match p {
-                Pin::Scene(s) => st.cam.is_some() || !s.uses_cam(),
+                Pin::Scene(_) => true,
                 Pin::Template(n) => app.templates.iter().any(|t| &t.name == n),
             })
             .cloned()
             .collect();
         let n = pins.len() as f32 + 1.0;
-        let w = (50.0 * n).min(inner.right() - 150.0 - pc.x - 40.0);
-        let seg = Rect::from_center_size(pos2((pc.x + 40.0 + inner.right() - 130.0) / 2.0, cy), vec2(w, 40.0));
+        let _ = pc;
+        let w = (92.0 * n).min(inner.width());
+        let seg = Rect::from_min_size(pos2(inner.left(), view.bottom() + 6.0), vec2(w, 50.0));
         if seg.width() > 60.0 {
             p.rect_filled(seg, CornerRadius::same(14), Color32::from_rgba_premultiplied(0, 0, 0, 90));
             let tw = seg.width() / n;
@@ -466,15 +469,27 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                     p.rect_filled(r, CornerRadius::same(11), Color32::from_rgba_premultiplied(30, 30, 34, 50));
                 }
                 let col = if sel { TEXT } else { MUTED };
+                // A name under the icon when there's room for it.
+                let named = r.width() >= 54.0;
+                let ic = if named { r.center() - vec2(0.0, 7.0) } else { r.center() };
                 match pin {
-                    Some(Pin::Scene(s)) => scene_icon(&p, *s, r.center(), col),
+                    Some(Pin::Scene(s)) => scene_icon(&p, *s, ic, col),
                     Some(Pin::Template(n)) => {
                         if let Some(t) = app.templates.iter().find(|t| &t.name == n) {
-                            let thumb = Rect::from_center_size(r.center(), vec2(28.0, 16.0));
+                            let thumb = Rect::from_center_size(ic, vec2(28.0, 16.0));
                             super::templates_ui::thumbnail(&p, thumb, &t.layout, t.brand.as_ref().unwrap_or(&brand));
                         }
                     }
-                    None => super::editor::custom_icon(&p, r.center(), col),
+                    None => super::editor::custom_icon(&p, ic, col),
+                }
+                if named {
+                    let name = match pin {
+                        Some(Pin::Scene(s)) => s.label().to_string(),
+                        Some(Pin::Template(n)) => n.clone(),
+                        None => l("Custom", "Personalizado").to_string(),
+                    };
+                    let max = ((r.width() - 6.0) / 5.6) as usize;
+                    p.text(pos2(r.center().x, r.bottom() - 9.0), Align2::CENTER_CENTER, truncate(&name, max.max(4)), body(10.0), col);
                 }
                 if resp.clicked() {
                     match pin {

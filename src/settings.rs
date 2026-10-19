@@ -78,6 +78,8 @@ pub struct Settings {
     pub prompter: Prompter,
     /// Media Board tiles, in order (the first nine have hotkeys).
     pub media: Vec<crate::media::Item>,
+    /// The starter sound pad was added once (deleting it keeps it gone).
+    pub media_seeded: bool,
     /// Interface language.
     pub language: crate::i18n::Lang,
     /// Global shortcuts.
@@ -211,6 +213,7 @@ impl Default for Settings {
             subtitle_lang: "auto".into(),
             prompter: Prompter::default(),
             media: vec![],
+            media_seeded: false,
             language: crate::i18n::Lang::En,
             hotkeys: Hotkeys::default(),
             vbg: Default::default(),

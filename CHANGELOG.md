@@ -3,6 +3,14 @@
 All notable changes to Chisme. The format follows [Keep a Changelog](https://keepachangelog.com),
 and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.3.1] - 2026-10-18
+
+### Added
+- A starter sound pad on the Media Board: applause, drum roll, ding, whoosh, buzzer and ba-dum-tss, made by Chisme itself.
+
+### Fixed
+- Pinned scenes and templates now have their own row under the preview, with their names, and camera scenes stay visible when the camera isn't connected.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
@@ -62,6 +70,7 @@ and versions follow [Semantic Versioning](https://semver.org).
   TikTok, X and RTMP, a replay buffer, Whisper subtitles, a tray icon, global hotkeys, a command
   line and the installer.
 
+[0.3.1]: https://github.com/LordVayron/chisme/releases/tag/v0.3.1
 [0.3.0]: https://github.com/LordVayron/chisme/releases/tag/v0.3.0
 [0.2.1]: https://github.com/LordVayron/chisme/releases/tag/v0.2.1
 [0.2.0]: https://github.com/LordVayron/chisme/releases/tag/v0.2.0
