@@ -308,6 +308,16 @@ Video stays on the GPU from capture to file:
   doesn't change, so editors see a true constant frame rate.
 - **Pause and resume** cut whole video frames and the matching audio samples, leaving no gap in
   the file.
+- **Guests** (`src/guests.rs`) run on a tokio runtime in their own thread:
+  - Chisme joins the LiveKit room as `chisme-host`, with a token it signs with your API key.
+  - Each guest's camera arrives as I420. It is converted to BGRA, then uploaded to a texture
+    whenever a new frame lands, and drawn by `Guest` layers by stage seat.
+  - Guest audio (48 kHz) goes to your speakers and, once the guest is on stage, into the mix like
+    Media Board audio.
+  - Chisme publishes your microphone and the program (the preview, at 15 fps) back to the room.
+  - It tells the guests' pages who is on stage, or who was removed, with data messages.
+  - The live test `cargo test --release --lib live_room_end_to_end -- --ignored` runs against a
+    real project (`CHISME_LK_URL`, `CHISME_LK_KEY`, plus the secret in Credential Manager).
 
 ## Build
 

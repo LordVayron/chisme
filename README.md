@@ -13,9 +13,11 @@
 **Chisme** is a screen recorder, live-streaming studio and clip maker for Windows, created by
 **Jorge ([@LordVayron](https://github.com/LordVayron))** and **079 AI Labs**. It's native
 (Rust, Direct3D, Media Foundation), so recording starts the instant you press the button and
-video never leaves the GPU. Everything runs on your PC: no account, no cloud, no telemetry.
+video never leaves the GPU. Everything runs on your PC: no account, no telemetry. The one
+exception is guests, who connect through your own LiveKit Cloud project.
 
 <p align="center">
+  <a href="https://chisme-ten.vercel.app"><b>Website</b></a> ·
   <a href="https://github.com/LordVayron/chisme/releases/latest"><b>Download for Windows</b></a> ·
   <a href="docs/GUIDE.md">Technical guide</a> ·
   <a href="CHANGELOG.md">What's new</a>
@@ -56,15 +58,22 @@ video never leaves the GPU. Everything runs on your PC: no account, no cloud, no
   switch between them live.
 
 **Go live**
-- YouTube, Twitch, TikTok, X and any RTMP(S) server, several at once, each with its own encode
-  (vertical 9:16 for TikTok while YouTube gets 1080p60).
+- YouTube, Twitch, TikTok, Instagram, X and any RTMP(S) server, all at once, each with its own
+  encode (vertical 1080×1920 for TikTok and Instagram while YouTube gets 1080p60).
 - Replay buffer: save the last 15 seconds to 5 minutes whenever something great happens.
 - Stream keys stay in Windows Credential Manager.
+
+**Guests**
+- Send a link. Guests join from their browser (nothing to install), set up camera and mic, and
+  wait in a green room until you bring them on stage.
+- Up to four on stage, placed by the Interview, Panel, Guest full screen and Screen + guests
+  scenes, or by a "+ Guest" layer in any scene. Mute or remove anyone.
+- Runs on your own LiveKit Cloud project (free tier). Chisme signs the invite links itself.
 
 **Present**
 - **Teleprompter:** a see-through script under your camera that never shows in the recording.
 - **Media Board:** fire sounds, clips and images with a click or a hotkey. They land in the
-  recording and the stream.
+  recording and the stream. 18 studio sound effects come included.
 
 **Finish**
 - Automatic subtitles (`.srt`) with Whisper, transcribed on your PC.
@@ -119,10 +128,11 @@ The [technical guide](docs/GUIDE.md) covers every option and how each part works
 - **Everything stays on your PC.** Recordings, subtitles (Whisper) and the virtual background
   (MediaPipe) are all processed locally.
 - **No telemetry, no account.**
-- **The internet is used only when you ask for it:** to stream, and to download a Whisper model
-  the first time you make subtitles. That model comes from Hugging Face and is checked against a
+- **The internet is used only when you ask for it:** to stream, to host guests (through your
+  LiveKit project), and to download a Whisper model the first time you make subtitles. That model comes from Hugging Face and is checked against a
   pinned SHA-256.
-- **Stream keys** are stored in Windows Credential Manager, never in plain text.
+- **Stream keys** and your LiveKit API secret are stored in Windows Credential Manager, never in
+  plain text.
 - **Chisme's own windows never show up in a recording**, the teleprompter included.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.
@@ -144,7 +154,8 @@ powershell -ExecutionPolicy Bypass -File scripts\package.ps1   # dist\Chisme-Set
 ```
 
 If CMake or LLVM live somewhere unusual, set `CMAKE` and `LIBCLANG_PATH`.
-`.cargo/config.toml` turns on AVX2 for whisper.cpp; without it, subtitles are ~20× slower.
+`.cargo/config.toml` turns on AVX2 for whisper.cpp (without it, subtitles are ~20× slower) and
+links the C runtime statically (`+crt-static`, `/MT`), which LiveKit's WebRTC library requires.
 
 ## How it's built
 
@@ -154,6 +165,7 @@ If CMake or LLVM live somewhere unusual, set `CMAKE` and `LIBCLANG_PATH`.
 | Compositing | Direct3D 11: the video processor plus HLSL shaders for shapes, layers and the virtual background |
 | Encoding | Media Foundation: hardware H.264/HEVC and AAC; MP4 sink writer and async MFT for streaming |
 | Streaming | Its own RTMP/RTMPS client (FLV, AMF0), TLS through SChannel |
+| Guests | [LiveKit](https://livekit.io) Rust SDK (WebRTC) in the app; a static green room page (`docs/join/`) using livekit-client |
 | AI | MediaPipe Selfie Segmentation run with [tract](https://github.com/sonos/tract); [whisper.cpp](https://github.com/ggerganov/whisper.cpp) via whisper-rs |
 | App | [egui](https://github.com/emilk/egui) on wgpu (Direct3D 12 + DirectComposition), tray icon, global hotkeys |
 
@@ -167,8 +179,13 @@ src/
   live/         RTMP client, encoders, replay ring
   segment.rs    person segmentation            vbg.rs        virtual background worker
   media.rs      Media Board decoding + monitor subtitles.rs  Whisper
+  guests.rs     LiveKit room, invite links, guest video and audio
   win/          Windows APIs: capture, audio, camera, encoders, shaders
-  app/          the interface (egui): studio, live, templates, media, script, settings
+  app/          the interface (egui): studio, live, templates, guests, media, script, settings
+docs/
+  index.html    the website (deployed on Vercel)
+  join/         the guests' green room (GitHub Pages)
+assets/sounds/  the built-in sound effects
 ```
 
 ## Credits
@@ -184,6 +201,7 @@ Chisme stands on great open-source work:
   by Google (Apache-2.0).
 - **[whisper.cpp](https://github.com/ggerganov/whisper.cpp)** and the Whisper models by OpenAI (MIT).
 - **[RNNoise](https://github.com/xiph/rnnoise)**, through [nnnoiseless](https://github.com/jneem/nnnoiseless).
+- **[LiveKit](https://livekit.io)** SDKs (Apache-2.0) for guests.
 - The fonts **Inter** (Rasmus Andersson) and **Krona One** (Sorkin Type), under the SIL Open Font
   License.
 
