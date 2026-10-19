@@ -1,5 +1,5 @@
 //! Custom layouts: a background and a stack of layers (the screen, the
-//! cameraâ€¦), each placed anywhere on the frame. Positions are fractions of
+//! camera…), each placed anywhere on the frame. Positions are fractions of
 //! the frame, so a layout works at any resolution. The fixed scenes become
 //! starting points (`Layout::from_scene`).
 
@@ -24,7 +24,7 @@ impl Source {
     pub fn label(self) -> &'static str {
         match self {
             Source::Screen => crate::i18n::l("Screen", "Pantalla"),
-            Source::Camera => crate::i18n::l("Camera", "CÃ¡mara"),
+            Source::Camera => crate::i18n::l("Camera", "Cámara"),
             Source::Image => crate::i18n::l("Image", "Imagen"),
             Source::Text => crate::i18n::l("Text", "Texto"),
             Source::Guest => crate::i18n::l("Guest", "Invitado"),
@@ -99,14 +99,14 @@ impl Layer {
         match self.source {
             Source::Image => {
                 let f = self.image.as_deref().map(|p| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
-                format!("{} Â· {}", Source::Image.label(), f.unwrap_or_default())
+                format!("{} · {}", Source::Image.label(), f.unwrap_or_default())
             }
-            Source::Text => format!("{} Â· {}", Source::Text.label(), self.text),
-            s => format!("{}  {}", s.label(), if self.fill { crate::i18n::l("Â· fill", "Â· llenar") } else { crate::i18n::l("Â· fit", "Â· ajustar") }),
+            Source::Text => format!("{} · {}", Source::Text.label(), self.text),
+            s => format!("{}  {}", s.label(), if self.fill { crate::i18n::l("· fill", "· llenar") } else { crate::i18n::l("· fit", "· ajustar") }),
         }
     }
 
-    /// The overlay style (shape, border, shadowâ€¦) for drawing this layer.
+    /// The overlay style (shape, border, shadow…) for drawing this layer.
     pub fn style(&self) -> PipSpec {
         PipSpec {
             shape: self.shape,
@@ -207,7 +207,7 @@ pub fn crop_to(src: (u32, u32), aspect: f64) -> (u32, u32, u32, u32) {
     }
 }
 
-/// The largest box with `aspect` centered in `rect` (pixels) â€” a layer in
+/// The largest box with `aspect` centered in `rect` (pixels) — a layer in
 /// "fit" mode shrinks to its picture's shape.
 pub fn fit_in(rect: [f64; 4], aspect: f64) -> [f64; 4] {
     let [x, y, w, h] = rect;

@@ -3,6 +3,14 @@
 All notable changes to Chisme. The format follows [Keep a Changelog](https://keepachangelog.com),
 and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.4.2] - 2026-10-19
+
+### Fixed
+- Garbled Spanish words in the app ("Cámara", "Capítulo") and in layer names.
+
+### Added
+- A landing page: https://chisme-ten.vercel.app
+
 ## [0.4.1] - 2026-10-19
 
 ### Changed

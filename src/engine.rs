@@ -132,9 +132,9 @@ pub enum Cmd {
     Replay(Option<f64>),
     /// Save the replay buffer (None: a timestamped file in the output folder).
     SaveReplay(Option<PathBuf>),
-    /// Change a camera control (zoom, exposureâ€¦; auto where supported).
+    /// Change a camera control (zoom, exposure…; auto where supported).
     CameraControl(crate::win::camera::Ctl, i32, bool),
-    /// Mark a chapter at this moment of the recording (None: "CapÃ­tulo N").
+    /// Mark a chapter at this moment of the recording (None: "Capítulo N").
     Marker(Option<String>),
     /// Media Board.
     Media(MediaCmd),
@@ -200,7 +200,7 @@ pub struct Status {
     pub streams: Vec<StreamStatus>,
     /// Replay buffer: (seconds held, bytes held).
     pub replay: Option<(f64, usize)>,
-    /// A message for the user (stream failed to start, replay savedâ€¦) and
+    /// A message for the user (stream failed to start, replay saved…) and
     /// a counter that changes with each one.
     pub notice: Option<String>,
     pub notices: u64,
@@ -541,7 +541,7 @@ impl Rec {
     }
 }
 
-/// GPU resources for one frame: screen â†’ canvas (+ camera) â†’ NV12 / preview.
+/// GPU resources for one frame: screen → canvas (+ camera) → NV12 / preview.
 struct Pipeline {
     canvas: ID3D11Texture2D,
     scale: Blitter,
@@ -838,7 +838,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     Cmd::Marker(label) => match &mut rec {
                         Some(r) => {
                             let at = r.stats.frames_out as f64 * period;
-                            let label = label.unwrap_or_else(|| crate::t!("Chapter {}", "CapÃ­tulo {}", r.markers.len() + 1));
+                            let label = label.unwrap_or_else(|| crate::t!("Chapter {}", "Capítulo {}", r.markers.len() + 1));
                             notify(crate::t!("Marker \"{}\" at {}", "Marcador \"{}\" en {}", label, crate::chapters::stamp(at)));
                             r.markers.push(crate::chapters::Marker { at, label });
                             r.stats.markers = r.markers.len();
@@ -874,7 +874,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                         };
                         let r = match (lives.iter().find(|o| o.is_replay()), path) {
                             (Some(o), Ok(p)) => o.save_replay(p),
-                            (None, _) => Err(anyhow!(crate::i18n::l("the replay buffer is off", "el replay buffer estÃ¡ apagado"))),
+                            (None, _) => Err(anyhow!(crate::i18n::l("the replay buffer is off", "el replay buffer está apagado"))),
                             (_, Err(e)) => Err(e.into()),
                         };
                         match r {
@@ -1198,7 +1198,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                         notify(crate::t!("Replay saved: {}", "Replay guardado: {}", p.file_name().unwrap_or_default().to_string_lossy()));
                     }
                     Ok(Err(e)) => notify(format!("Replay: {e:#}")),
-                    Err(_) => notify(crate::i18n::l("Replay: saving failed", "Replay: fallÃ³ al guardar").into()),
+                    Err(_) => notify(crate::i18n::l("Replay: saving failed", "Replay: falló al guardar").into()),
                 }
             }
 
