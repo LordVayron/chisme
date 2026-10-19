@@ -266,7 +266,7 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
     let left_w = (top.width() * 0.66).floor();
     let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
     let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
-    let audio_h = (right.height() * 0.42).floor();
+    let audio_h = (right.height() * 0.40).floor();
     let audio_card = Rect::from_min_size(right.min, vec2(right.width(), audio_h));
     let cam_card = Rect::from_min_max(pos2(right.left(), audio_card.bottom() + 16.0), right.max);
     let table = Rect::from_min_max(pos2(area.left(), area.bottom() - table_h), area.max);
@@ -308,6 +308,26 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             super::editor::layout_edit(app, ui, img);
         } else {
             overlay_drag(app, ui, img);
+        }
+        // Show Chisme in recordings (top right).
+        {
+            let label = l("Show Chisme in recording", "Mostrar Chisme en la grabación");
+            let w = 64.0 + label.chars().count() as f32 * 6.4;
+            let chip = Rect::from_min_size(pos2(img.right() - w - 12.0, img.top() + 12.0), vec2(w, 26.0));
+            let r = ui.interact(chip, Id::new("show-self"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(l(
+                "Off: Chisme's windows never appear in recordings or streams. On: record a tutorial of Chisme itself.",
+                "Apagado: las ventanas de Chisme nunca salen en grabaciones ni transmisiones. Encendido: graba un tutorial del propio Chisme.",
+            ));
+            p.rect_filled(chip, CornerRadius::same(13), Color32::from_rgba_premultiplied(0, 0, 0, 150));
+            text(&p, chip.left_center() + vec2(12.0, 0.0), Align2::LEFT_CENTER, label, semibold(11.0), TEXT);
+            let on = app.settings.show_self;
+            let sw = Rect::from_min_size(pos2(chip.right() - 38.0, chip.center().y - 8.0), vec2(28.0, 16.0));
+            p.rect_filled(sw, CornerRadius::same(8), if on { ORANGE } else { Color32::from_rgb(70, 70, 76) });
+            p.circle_filled(pos2(if on { sw.right() - 8.0 } else { sw.left() + 8.0 }, sw.center().y), 6.0, Color32::WHITE);
+            if r.clicked() {
+                app.settings.show_self = !on;
+                app.settings_changed();
+            }
         }
         // "Live" chip.
         let chip = Rect::from_min_size(img.min + vec2(12.0, 12.0), vec2(if st.recording { 78.0 } else { 104.0 }, 26.0));
@@ -360,25 +380,41 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     // Timer.
     let timer = if st.recording { clock(st.rec_secs) } else { "00:00".into() };
     text(&p, pos2(inner.right() - 10.0, cy), Align2::RIGHT_CENTER, timer, display(24.0), if st.recording { TEXT } else { FAINT });
-    // Scene picker: the camera scenes need a camera; "Personalizado" always.
+    // Quick access: the pinned scenes and templates (Templates page), then
+    // Custom. Camera scenes need a camera; missing templates are skipped.
     {
-        let scenes: Vec<Scene> = Scene::ALL.into_iter().filter(|s| st.cam.is_some() || !s.uses_cam()).collect();
-        // One tile per scene, each drawing its layout; the name on hover.
-        let n = scenes.len() as f32 + 1.0;
+        use crate::settings::Pin;
+        let pins: Vec<Pin> = app
+            .settings
+            .pinned
+            .iter()
+            .filter(|p| match p {
+                Pin::Scene(s) => st.cam.is_some() || !s.uses_cam(),
+                Pin::Template(n) => app.templates.iter().any(|t| &t.name == n),
+            })
+            .cloned()
+            .collect();
+        let n = pins.len() as f32 + 1.0;
         let w = (50.0 * n).min(inner.right() - 150.0 - pc.x - 40.0);
         let seg = Rect::from_center_size(pos2((pc.x + 40.0 + inner.right() - 130.0) / 2.0, cy), vec2(w, 40.0));
-        if seg.width() > 100.0 {
+        if seg.width() > 60.0 {
             p.rect_filled(seg, CornerRadius::same(14), Color32::from_rgba_premultiplied(0, 0, 0, 90));
             let tw = seg.width() / n;
             let custom = app.settings.layout.is_some();
-            for i in 0..=scenes.len() {
+            let brand = app.settings.brand.clone();
+            for i in 0..=pins.len() {
                 let r = Rect::from_min_size(pos2(seg.left() + tw * i as f32, seg.top()), vec2(tw, seg.height())).shrink(3.0);
-                let s = scenes.get(i).copied();
-                let tip = s.map_or(l("Custom: move and resize the layers", "Personalizado: mueve y ajusta las capas"), |s| s.label());
-                let resp = ui.interact(r, Id::new(("scene", i)), Sense::click()).on_hover_text(tip).on_hover_cursor(CursorIcon::PointingHand);
-                let sel = match s {
-                    Some(s) => !custom && app.settings.scene == s,
-                    None => custom,
+                let pin = pins.get(i);
+                let tip = match pin {
+                    Some(Pin::Scene(s)) => s.label().to_string(),
+                    Some(Pin::Template(n)) => t!("Template: {}", "Plantilla: {}", n),
+                    None => l("Custom: move and resize the layers", "Personalizado: mueve y ajusta las capas").to_string(),
+                };
+                let resp = ui.interact(r, Id::new(("pin", i)), Sense::click()).on_hover_text(tip).on_hover_cursor(CursorIcon::PointingHand);
+                let sel = match pin {
+                    Some(Pin::Scene(s)) => !custom && app.settings.scene == *s,
+                    Some(Pin::Template(n)) => custom && app.settings.template.as_deref() == Some(n.as_str()),
+                    None => custom && app.settings.template.as_ref().is_none_or(|t| !pins.contains(&Pin::Template(t.clone()))),
                 };
                 if sel {
                     p.rect_filled(r, CornerRadius::same(11), Color32::from_rgba_premultiplied(62, 62, 68, 120));
@@ -386,17 +422,29 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                     p.rect_filled(r, CornerRadius::same(11), Color32::from_rgba_premultiplied(30, 30, 34, 50));
                 }
                 let col = if sel { TEXT } else { MUTED };
-                match s {
-                    Some(s) => scene_icon(&p, s, r.center(), col),
+                match pin {
+                    Some(Pin::Scene(s)) => scene_icon(&p, *s, r.center(), col),
+                    Some(Pin::Template(n)) => {
+                        if let Some(t) = app.templates.iter().find(|t| &t.name == n) {
+                            let thumb = Rect::from_center_size(r.center(), vec2(28.0, 16.0));
+                            super::templates_ui::thumbnail(&p, thumb, &t.layout, t.brand.as_ref().unwrap_or(&brand));
+                        }
+                    }
                     None => super::editor::custom_icon(&p, r.center(), col),
                 }
                 if resp.clicked() {
-                    match s {
-                        Some(s) => {
-                            app.settings.scene = s;
+                    match pin {
+                        Some(Pin::Scene(s)) => {
+                            app.settings.scene = *s;
                             app.settings.layout = None;
+                            app.settings.template = None;
                             app.sel_layer = None;
                             app.settings_changed();
+                        }
+                        Some(Pin::Template(n)) => {
+                            if let Some(t) = app.templates.iter().find(|t| &t.name == n).cloned() {
+                                app.apply_template(&t);
+                            }
                         }
                         None => app.customize_layout(),
                     }
@@ -437,6 +485,10 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
 
 /// A tiny drawing of a scene's layout: a 26x16 frame with the screen
 /// (outlined) and the camera (a filled head-and-shoulders block).
+pub(super) fn scene_icon_pub(p: &egui::Painter, s: Scene, c: Pos2, color: Color32) {
+    scene_icon(p, s, c, color)
+}
+
 fn scene_icon(p: &egui::Painter, s: Scene, c: Pos2, color: Color32) {
     let frame = Rect::from_center_size(c, vec2(26.0, 16.0));
     let st = Stroke::new(1.4, color);
@@ -511,22 +563,46 @@ fn overlay_drag(app: &mut App, ui: &mut Ui, img: Rect) {
     }
 }
 
+/// A speaker icon, crossed out when muted.
+fn speaker(p: &egui::Painter, c: Pos2, color: Color32, muted: bool) {
+    p.add(EShape::convex_polygon(vec![c + vec2(-7.0, -3.0), c + vec2(-3.0, -3.0), c + vec2(2.0, -7.0), c + vec2(2.0, 7.0), c + vec2(-3.0, 3.0), c + vec2(-7.0, 3.0)], color, Stroke::NONE));
+    if muted {
+        p.line_segment([c + vec2(5.0, -4.0), c + vec2(11.0, 4.0)], Stroke::new(1.8, RED));
+        p.line_segment([c + vec2(11.0, -4.0), c + vec2(5.0, 4.0)], Stroke::new(1.8, RED));
+    } else {
+        p.add(EShape::line((0..=8).map(|k| { let a = -0.9 + 1.8 * k as f32 / 8.0; c + vec2(4.0 + a.cos() * 5.0, a.sin() * 5.0) }).collect(), Stroke::new(1.5, color)));
+    }
+}
+
 fn audio(app: &mut App, ui: &mut Ui, card: Rect) {
     let p = ui.painter().clone();
     theme::card(&p, card);
-    let st = &app.status;
+    let st = app.status.clone();
     card_title(&p, card, l("Live audio", "Audio en vivo"), None);
-    let chart = Rect::from_min_max(pos2(card.left() + 54.0, card.top() + 60.0), pos2(card.right() - 24.0, card.bottom() - 48.0));
+    // Mute / unmute everything.
+    let sources: Vec<usize> = [st.has_system.then_some(0), st.has_mic.then_some(1)].into_iter().flatten().collect();
+    if !sources.is_empty() {
+        let all_muted = sources.iter().all(|&i| if i == 0 { app.settings.system_muted } else { app.settings.mic_muted });
+        let b = Rect::from_min_size(pos2(card.right() - 22.0 - 104.0, card.top() + 14.0), vec2(104.0, 28.0));
+        let label = if all_muted { l("Unmute all", "Activar todo") } else { l("Mute all", "Silenciar todo") };
+        if pill(ui, b, "mute-all", label, if all_muted { Color32::from_rgba_premultiplied(80, 20, 20, 120) } else { Color32::from_rgba_premultiplied(40, 40, 44, 90) }, if all_muted { RED } else { TEXT }, medium(12.0)).clicked() {
+            app.settings.system_muted = !all_muted;
+            app.settings.mic_muted = !all_muted;
+            app.settings_changed();
+        }
+    }
+    let rows = sources.len().max(1) as f32;
+    let controls_h = rows * 34.0 + 8.0;
+    let chart = Rect::from_min_max(pos2(card.left() + 50.0, card.top() + 54.0), pos2(card.right() - 24.0, card.bottom() - controls_h - 14.0));
     // Grid: 0, -20, -40, -60 dB.
-    for (i, db) in [0, -20, -40, -60].iter().enumerate() {
-        let y = chart.top() + chart.height() * i as f32 / 3.0;
-        text(&p, pos2(card.left() + 22.0, y), Align2::LEFT_CENTER, db, body(11.0), FAINT);
+    for (i, db) in [0, -30, -60].iter().enumerate() {
+        let y = chart.top() + chart.height() * i as f32 / 2.0;
+        text(&p, pos2(card.left() + 22.0, y), Align2::LEFT_CENTER, db, body(10.5), FAINT);
         p.line_segment([pos2(chart.left(), y), pos2(chart.right(), y)], Stroke::new(1.0, Color32::from_rgba_premultiplied(30, 30, 34, 30)));
     }
     let y_of = |db: f32| chart.bottom() - ((db.clamp(-60.0, 0.0) + 60.0) / 60.0) * chart.height();
     let n = app.levels.len().max(2);
     let line = |sel: fn(&(f32, f32)) -> f32| -> Vec<Pos2> {
-        // Smoothed so the line reads like the dashboard's curves.
         let mut v = 0.0f32;
         app.levels
             .iter()
@@ -538,35 +614,66 @@ fn audio(app: &mut App, ui: &mut Ui, card: Rect) {
             })
             .collect()
     };
-    let mut legend = vec![];
-    if st.has_mic {
-        let pts = line(|l| l.1);
-        p.add(EShape::line(pts, Stroke::new(2.0, TEXT)));
-        legend.push((l("Microphone", "Micrófono"), TEXT, app.levels.back().map_or(-90.0, |l| l.1)));
+    if st.has_mic && !app.settings.mic_muted {
+        p.add(EShape::line(line(|l| l.1), Stroke::new(2.0, TEXT)));
     }
-    if st.has_system {
+    if st.has_system && !app.settings.system_muted {
         let pts = line(|l| l.0);
         if let Some(last) = pts.last().copied() {
             p.add(EShape::line(pts, Stroke::new(2.0, YELLOW)));
-            // Current value bubble on the newest point.
-            let v = app.levels.back().map_or(-90.0, |l| l.0);
-            p.circle_filled(last, 4.5, YELLOW);
-            let label = if v <= -60.0 { "—".to_string() } else { format!("{v:.0}") };
-            let b = Rect::from_center_size(last - vec2(0.0, 22.0), vec2(40.0, 22.0));
-            p.rect_filled(b, CornerRadius::same(11), Color32::from_rgb(12, 12, 13));
-            p.text(b.center(), Align2::CENTER_CENTER, label, semibold(11.5), TEXT);
+            p.circle_filled(last, 4.0, YELLOW);
         }
-        legend.push((l("System", "Sistema"), YELLOW, app.levels.back().map_or(-90.0, |l| l.0)));
     }
-    if legend.is_empty() {
+    if sources.is_empty() {
         text(&p, chart.center(), Align2::CENTER_CENTER, l("No audio — turn it on in Settings", "Sin audio — actívalo en Ajustes"), body(12.5), MUTED);
+        return;
     }
-    let mut x = chart.left();
-    for (name, c, v) in legend {
-        p.circle_filled(pos2(x + 4.0, card.bottom() - 24.0), 4.0, c);
-        let val = if v <= -60.0 { "-∞".to_string() } else { format!("{v:.0} dB") };
-        let r = text(&p, pos2(x + 14.0, card.bottom() - 24.0), Align2::LEFT_CENTER, format!("{name}  {val}"), body(12.0), MUTED);
-        x = r.right() + 22.0;
+    // One row per source: name, live level, volume, mute.
+    let mut y = card.bottom() - controls_h - 4.0;
+    for &i in &sources {
+        let (name, color, level) = if i == 0 {
+            (l("System", "Sistema"), YELLOW, app.levels.back().map_or(-90.0, |l| l.0))
+        } else {
+            (l("Microphone", "Micrófono"), TEXT, app.levels.back().map_or(-90.0, |l| l.1))
+        };
+        let muted = if i == 0 { app.settings.system_muted } else { app.settings.mic_muted };
+        let row = Rect::from_min_size(pos2(card.left() + 18.0, y), vec2(card.width() - 36.0, 30.0));
+        p.rect_filled(row, CornerRadius::same(10), Color32::from_rgba_premultiplied(0, 0, 0, 70));
+        p.circle_filled(pos2(row.left() + 12.0, row.center().y), 4.0, if muted { FAINT } else { color });
+        text(&p, pos2(row.left() + 22.0, row.center().y), Align2::LEFT_CENTER, name, medium(12.0), if muted { FAINT } else { TEXT });
+        let val = if muted { l("muted", "silenciado").to_string() } else if level <= -60.0 { "-∞".into() } else { format!("{level:.0} dB") };
+        text(&p, pos2(row.left() + 108.0, row.center().y), Align2::LEFT_CENTER, val, body(11.0), if muted { RED } else { MUTED });
+        // Mute button.
+        let mb = Rect::from_center_size(pos2(row.right() - 16.0, row.center().y), vec2(26.0, 24.0));
+        let mr = ui.interact(mb, Id::new(("mute", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if muted { l("Unmute", "Activar") } else { l("Mute", "Silenciar") });
+        if mr.hovered() {
+            p.rect_filled(mb, CornerRadius::same(7), Color32::from_rgba_premultiplied(60, 60, 66, 90));
+        }
+        speaker(&p, mb.center() - vec2(2.0, 0.0), if muted { FAINT } else { TEXT }, muted);
+        if mr.clicked() {
+            if i == 0 {
+                app.settings.system_muted = !muted;
+            } else {
+                app.settings.mic_muted = !muted;
+            }
+            app.settings_changed();
+        }
+        // Volume (dB, applied live to the mix).
+        let sl = Rect::from_min_max(pos2(row.left() + 160.0, row.top()), pos2(mb.left() - 8.0, row.bottom()));
+        if sl.width() > 60.0 {
+            let gain = if i == 0 { &mut app.settings.system_gain_db } else { &mut app.settings.mic_gain_db };
+            let mut changed = false;
+            ui.scope_builder(UiBuilder::new().max_rect(sl), |ui| {
+                ui.spacing_mut().slider_width = (sl.width() - 58.0).max(40.0);
+                ui.horizontal_centered(|ui| {
+                    changed = ui.add(egui::Slider::new(gain, -30.0..=12.0).suffix(" dB").max_decimals(0)).on_hover_text(l("Volume in the mix", "Volumen en la mezcla")).changed();
+                });
+            });
+            if changed {
+                app.settings_changed();
+            }
+        }
+        y += 34.0;
     }
 }
 
@@ -1079,6 +1186,7 @@ fn source_section(app: &mut App, ui: &mut Ui, rect: Rect, w: f32) {
             ui.label("")
         });
         row(ui, l("Mouse pointer", "Puntero del mouse"), |ui| toggle(ui, &mut app.settings.cursor));
+        row(ui, l("Show Chisme in recordings", "Mostrar Chisme en las grabaciones"), |ui| toggle(ui, &mut app.settings.show_self));
         if let Some(q) = app.settings.camera.clone()
             && let Some(full) = app.devices.cameras.iter().find(|c| c.to_lowercase().contains(&q.to_lowercase()))
         {

@@ -39,6 +39,13 @@ pub struct Settings {
     pub audio_tracks: AudioLayout,
     pub system_gain_db: f32,
     pub mic_gain_db: f32,
+    /// Muted sources: system audio, microphone.
+    pub system_muted: bool,
+    pub mic_muted: bool,
+    /// Show Chisme's own windows in recordings (normally hidden).
+    pub show_self: bool,
+    /// Quick-access scenes and templates under the preview, in order.
+    pub pinned: Vec<Pin>,
     /// Part of the camera's name; None = no camera.
     pub camera: Option<String>,
     pub scene: Scene,
@@ -80,6 +87,15 @@ pub struct Settings {
     /// Window to record instead of a display (not saved: handles change).
     #[serde(skip)]
     pub window: Option<(usize, String)>,
+}
+
+/// A quick-access button under the preview: a built-in scene or a saved
+/// template (by name).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Pin {
+    Scene(Scene),
+    Template(String),
 }
 
 /// Global shortcuts as combos ("Ctrl+Shift+R"; empty: off). Templates and
@@ -169,6 +185,10 @@ impl Default for Settings {
             audio_tracks: AudioLayout::Both,
             system_gain_db: 0.0,
             mic_gain_db: 0.0,
+            system_muted: false,
+            mic_muted: false,
+            show_self: false,
+            pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),
             camera: None,
             scene: Scene::ScreenCam,
             pip_size: pip.size,
@@ -265,7 +285,7 @@ impl Settings {
     }
 
     pub fn live(&self) -> LiveState {
-        LiveState { scene: self.scene, pip: self.pip(), gain_db: [self.system_gain_db, self.mic_gain_db], layout: self.layout.clone(), brand: self.brand.clone(), vbg: self.vbg.clone() }
+        LiveState { scene: self.scene, pip: self.pip(), gain_db: [self.system_gain_db, self.mic_gain_db], muted: [self.system_muted, self.mic_muted], layout: self.layout.clone(), brand: self.brand.clone(), vbg: self.vbg.clone() }
     }
 
     pub fn stream_url(&self, p: Platform) -> String {

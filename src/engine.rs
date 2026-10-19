@@ -107,6 +107,8 @@ pub struct LiveState {
     pub scene: Scene,
     pub pip: PipSpec,
     pub gain_db: [f32; 2],
+    /// Muted sources (system, mic): silent in every track and stream.
+    pub muted: [bool; 2],
     /// A custom layout replaces the fixed scene.
     pub layout: Option<Layout>,
     /// Colors and font for text layers.
@@ -926,6 +928,17 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
             // Audio: meters always, into the file while recording and into
             // the live mix while streaming.
             let live = shared.live.lock().unwrap().clone();
+            // Volume and mute apply live, even mid-recording. Gains shape the
+            // mix; the separate stems keep their level but follow mute.
+            let silence = |g: [f32; 2]| [0, 1].map(|i| if live.muted[i] { -200.0 } else { g[i] });
+            if let Some(r) = &mut rec {
+                for (t, m) in tracks.iter().zip(r.mixers.iter_mut()) {
+                    m.set_gain(silence(if t.mix { live.gain_db } else { [0.0; 2] }));
+                }
+            }
+            if let Some(m) = &mut live_mix {
+                m.set_gain(silence(live.gain_db));
+            }
             if lives.is_empty() {
                 live_mix = None;
             } else if live_mix.is_none() {

@@ -123,7 +123,8 @@ pub struct App {
     pub template_name: String,
     pub hidden: bool,
     quitting: bool,
-    excluded: bool,
+    /// Whether the window is currently hidden from captures.
+    excluded: Option<bool>,
     /// Stream keys being typed (loaded from Credential Manager).
     pub keys: Vec<(Platform, String)>,
     last_notices: u64,
@@ -193,7 +194,7 @@ impl App {
             template_name: String::new(),
             hidden: false,
             quitting: false,
-            excluded: false,
+            excluded: None,
             keys,
             last_notices: 0,
             job: Default::default(),
@@ -674,9 +675,10 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        if !self.excluded {
-            self.excluded = true;
-            exclude_from_capture(frame);
+        let hide = !self.settings.show_self && std::env::var_os("CHISME_SHOW_IN_CAPTURE").is_none();
+        if self.excluded != Some(hide) {
+            self.excluded = Some(hide);
+            exclude_from_capture(frame, hide);
         }
         ui::draw(self, ui);
         prompter::window(self, &ui.ctx().clone());
@@ -691,18 +693,16 @@ impl eframe::App for App {
 
 /// Keep Chisme's own window out of every recording (and out of its preview,
 /// which would otherwise show itself endlessly).
-/// CHISME_SHOW_IN_CAPTURE=1 turns this off (for screenshots of the app).
-fn exclude_from_capture(frame: &eframe::Frame) {
+/// The "Show Chisme in recordings" switch (or CHISME_SHOW_IN_CAPTURE=1)
+/// turns this off, to record a tutorial of the app itself.
+fn exclude_from_capture(frame: &eframe::Frame, hide: bool) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
-    if std::env::var_os("CHISME_SHOW_IN_CAPTURE").is_some() {
-        return;
-    }
+    use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};
     if let Ok(h) = frame.window_handle()
         && let RawWindowHandle::Win32(w) = h.as_raw()
     {
         unsafe {
-            let _ = SetWindowDisplayAffinity(windows::Win32::Foundation::HWND(w.hwnd.get() as _), WDA_EXCLUDEFROMCAPTURE);
+            let _ = SetWindowDisplayAffinity(windows::Win32::Foundation::HWND(w.hwnd.get() as _), if hide { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE });
         }
     }
 }

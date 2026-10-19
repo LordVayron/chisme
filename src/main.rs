@@ -284,7 +284,7 @@ fn record(a: RecordArgs) -> Result<()> {
     if let Some(p) = &a.bg_image {
         vbg.pick(p.to_string_lossy().into_owned());
     }
-    let live = LiveState { scene: a.scene.unwrap_or_default(), pip, gain_db: [a.system_gain, a.mic_gain], layout, brand, vbg };
+    let live = LiveState { scene: a.scene.unwrap_or_default(), pip, gain_db: [a.system_gain, a.mic_gain], muted: [false; 2], layout, brand, vbg };
     let engine = Engine::start(cfg, live);
     engine.shared.preview_on.store(false, std::sync::atomic::Ordering::Relaxed);
 

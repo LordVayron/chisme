@@ -83,8 +83,11 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
         });
     });
 
+    let quick = Rect::from_min_size(pos2(area.left(), bar.bottom() + 16.0), vec2(area.width(), 128.0));
+    quick_access(app, ui, quick);
+
     // Cards: 4 per row.
-    let grid = Rect::from_min_max(pos2(area.left(), bar.bottom() + 16.0), area.max);
+    let grid = Rect::from_min_max(pos2(area.left(), quick.bottom() + 16.0), area.max);
     let cols = 4;
     let gap = 16.0;
     let cw = (grid.width() - gap * (cols - 1) as f32) / cols as f32;
@@ -129,6 +132,19 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                 let apply = Rect::from_min_size(pos2(card.left() + 14.0, by - 15.0), vec2(90.0, 30.0));
                 let export = Rect::from_min_size(pos2(apply.right() + 8.0, by - 15.0), vec2(86.0, 30.0));
                 let delete = Rect::from_min_size(pos2(card.right() - 14.0 - 30.0, by - 15.0), vec2(30.0, 30.0));
+                let pin_r = Rect::from_min_size(pos2(delete.left() - 38.0, by - 15.0), vec2(30.0, 30.0));
+                let pin = crate::settings::Pin::Template(t.name.clone());
+                let pinned = app.settings.pinned.contains(&pin);
+                let pr = ui.interact(pin_r, Id::new(("tpl-pin", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if pinned {
+                    l("Unpin from under the preview", "Quitar de debajo del preview")
+                } else {
+                    l("Pin under the preview for quick access", "Fijar debajo del preview para acceso rápido")
+                });
+                ui.painter().rect_filled(pin_r, CornerRadius::same(15), if pinned { Color32::from_rgba_premultiplied(70, 34, 0, 110) } else if pr.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 90) } else { Color32::from_rgba_premultiplied(40, 40, 44, 80) });
+                pin_icon(ui.painter(), pin_r.center(), if pinned { ORANGE } else { TEXT }, pinned);
+                if pr.clicked() {
+                    toggle_pin(app, pin);
+                }
                 if button(ui, apply, ("apply", i), if active { l("Active", "Activa") } else { l("Apply", "Aplicar") }, !active) {
                     app.apply_template(t);
                 }
@@ -141,6 +157,125 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
             }
         });
     });
+}
+
+/// A push pin, filled when pinned.
+pub fn pin_icon(p: &Painter, c: egui::Pos2, color: Color32, filled: bool) {
+    let head = egui::Rect::from_center_size(c - vec2(0.0, 3.0), vec2(9.0, 8.0));
+    if filled {
+        p.rect_filled(head, CornerRadius::same(2), color);
+    } else {
+        p.rect_stroke(head, CornerRadius::same(2), Stroke::new(1.5, color), StrokeKind::Middle);
+    }
+    p.line_segment([c + vec2(-6.0, 1.5), c + vec2(6.0, 1.5)], Stroke::new(1.8, color));
+    p.line_segment([c + vec2(0.0, 1.5), c + vec2(0.0, 8.0)], Stroke::new(1.6, color));
+}
+
+fn toggle_pin(app: &mut App, pin: crate::settings::Pin) {
+    if let Some(i) = app.settings.pinned.iter().position(|p| *p == pin) {
+        app.settings.pinned.remove(i);
+    } else {
+        app.settings.pinned.push(pin);
+    }
+    let _ = app.settings.save();
+}
+
+/// What sits under the preview, in order: move items left and right,
+/// unpin them, and pin the built-in scenes (templates pin from their cards).
+fn quick_access(app: &mut App, ui: &mut Ui, rect: Rect) {
+    use crate::compose::Scene;
+    use crate::settings::Pin;
+    let p = ui.painter().clone();
+    theme::card(&p, rect);
+    p.text(rect.min + vec2(22.0, 18.0), Align2::LEFT_TOP, l("Quick access under the preview", "Acceso rápido debajo del preview"), medium(14.0), TEXT);
+    p.text(
+        pos2(rect.right() - 22.0, rect.top() + 20.0),
+        Align2::RIGHT_TOP,
+        l("Pin scenes here and templates from their cards. Arrows change the order.", "Fija escenas aquí y plantillas desde sus tarjetas. Las flechas cambian el orden."),
+        body(12.0),
+        FAINT,
+    );
+    let brand = app.settings.brand.clone();
+    let pins = app.settings.pinned.clone();
+    let mut action: Option<(usize, i32)> = None; // (index, -1 left / +1 right / 0 unpin)
+    let mut x = rect.left() + 22.0;
+    let y = rect.top() + 50.0;
+    for (i, pin) in pins.iter().enumerate() {
+        let (label, tw) = match pin {
+            Pin::Scene(s) => (s.label().to_string(), 22.0),
+            Pin::Template(n) => (n.clone(), 34.0),
+        };
+        let f = medium(12.5);
+        let text_w = ui.painter().layout_no_wrap(label.clone(), f.clone(), TEXT).size().x;
+        let w = 30.0 + tw + text_w + 70.0;
+        if x + w > rect.right() - 22.0 {
+            break;
+        }
+        let chip = Rect::from_min_size(pos2(x, y), vec2(w, 34.0));
+        p.rect_filled(chip, CornerRadius::same(17), Color32::from_rgba_premultiplied(40, 40, 44, 100));
+        let mut cx = chip.left() + 16.0;
+        match pin {
+            Pin::Scene(s) => {
+                super::ui::scene_icon_pub(&p, *s, pos2(cx + 6.0, chip.center().y), TEXT);
+                cx += 22.0;
+            }
+            Pin::Template(n) => {
+                if let Some(t) = app.templates.iter().find(|t| &t.name == n) {
+                    super::templates_ui::thumbnail(&p, Rect::from_min_size(pos2(cx - 4.0, chip.center().y - 9.0), vec2(30.0, 18.0)), &t.layout, t.brand.as_ref().unwrap_or(&brand));
+                }
+                cx += 34.0;
+            }
+        }
+        p.text(pos2(cx, chip.center().y), Align2::LEFT_CENTER, &label, f, TEXT);
+        for (k, (glyph, act)) in [("<", -1), (">", 1), ("x", 0)].iter().enumerate() {
+            let b = Rect::from_center_size(pos2(chip.right() - 58.0 + k as f32 * 20.0, chip.center().y), vec2(18.0, 22.0));
+            let r = ui.interact(b, Id::new(("qa", i, k)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(match act {
+                -1 => l("Move left", "Mover a la izquierda"),
+                1 => l("Move right", "Mover a la derecha"),
+                _ => l("Unpin", "Quitar"),
+            });
+            if r.hovered() {
+                p.rect_filled(b, CornerRadius::same(6), Color32::from_rgba_premultiplied(70, 70, 76, 120));
+            }
+            p.text(b.center(), Align2::CENTER_CENTER, glyph, semibold(12.0), if *act == 0 { RED } else { MUTED });
+            if r.clicked() {
+                action = Some((i, *act));
+            }
+        }
+        x += w + 8.0;
+    }
+    // The built-in scenes not pinned yet.
+    let mut x = rect.left() + 22.0;
+    let y2 = rect.top() + 94.0;
+    p.text(pos2(x, y2 + 11.0), Align2::LEFT_CENTER, l("Add a scene:", "Agregar escena:"), body(12.0), MUTED);
+    x += 100.0;
+    for s in Scene::ALL {
+        if pins.contains(&Pin::Scene(s)) {
+            continue;
+        }
+        let w = 40.0 + ui.painter().layout_no_wrap(s.label().to_string(), body(12.0), TEXT).size().x;
+        let b = Rect::from_min_size(pos2(x, y2), vec2(w, 24.0));
+        let r = ui.interact(b, Id::new(("qa-add", s.label())), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+        p.rect_filled(b, CornerRadius::same(12), if r.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 110) } else { Color32::from_rgba_premultiplied(30, 30, 34, 80) });
+        p.text(pos2(b.left() + 12.0, b.center().y), Align2::LEFT_CENTER, "+", semibold(13.0), ORANGE);
+        p.text(pos2(b.left() + 26.0, b.center().y), Align2::LEFT_CENTER, s.label(), body(12.0), TEXT);
+        if r.clicked() {
+            toggle_pin(app, Pin::Scene(s));
+        }
+        x += w + 8.0;
+    }
+    if let Some((i, act)) = action {
+        let v = &mut app.settings.pinned;
+        match act {
+            0 => {
+                v.remove(i);
+            }
+            -1 if i > 0 => v.swap(i, i - 1),
+            1 if i + 1 < v.len() => v.swap(i, i + 1),
+            _ => {}
+        }
+        let _ = app.settings.save();
+    }
 }
 
 fn button(ui: &mut Ui, r: Rect, id: (&str, usize), label: &str, primary: bool) -> bool {

@@ -239,6 +239,12 @@ impl Mixer {
         self
     }
 
+    /// Change the system / mic gains (dB) while running; media keeps its own.
+    pub fn set_gain(&mut self, gain_db: [f32; 2]) {
+        self.gain[0] = 10f32.powf(gain_db[0] / 20.0);
+        self.gain[1] = 10f32.powf(gain_db[1] / 20.0);
+    }
+
     /// Whether this track gets Media Board audio.
     pub fn with_media(mut self, on: bool) -> Self {
         self.media = on;
