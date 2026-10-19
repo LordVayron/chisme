@@ -208,6 +208,12 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                     app.sel_layer = Some(layout.layers.len() - 1);
                     changed = true;
                 }
+                if ui.button(tr("+ Guest", "+ Invitado")).on_hover_text(tr("A guest from the Guests page, once on stage", "Un invitado de la página Invitados, cuando está en vivo")).clicked() {
+                    let seat = layout.layers.iter().filter(|l| l.source == Source::Guest).count().min(7) as u8;
+                    layout.layers.push(Layer { source: Source::Guest, guest: seat, rect: [0.55, 0.3, 0.4, 0.4], fill: true, roundness: 0.06, ..Default::default() });
+                    app.sel_layer = Some(layout.layers.len() - 1);
+                    changed = true;
+                }
                 if ui.button(tr("+ Text", "+ Texto")).on_hover_text(tr("Lower third: name and title", "Lower third: nombre y título")).clicked() {
                     layout.layers.push(Layer::lower_third(tr("Your name", "Tu nombre"), tr("Your title", "Tu título"), 1));
                     app.sel_layer = Some(layout.layers.len() - 1);
@@ -347,6 +353,14 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                         });
                         ui.label(egui::RichText::new(tr("Colors and font: Settings → Brand.", "Colores y tipografía: Ajustes → Marca.")).color(FAINT).size(11.5));
                         return;
+                    }
+                    Source::Guest => {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(tr("Seat", "Lugar")).color(MUTED).size(13.0));
+                            for s in 0..4u8 {
+                                changed |= ui.selectable_value(&mut l.guest, s, format!("{}", s + 1)).on_hover_text(tr("Who was brought on stage 1st, 2nd…", "Quién subió 1.º, 2.º…")).changed();
+                            }
+                        });
                     }
                     Source::Image => {
                         ui.horizontal(|ui| {

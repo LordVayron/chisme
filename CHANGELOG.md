@@ -3,6 +3,18 @@
 All notable changes to Chisme. The format follows [Keep a Changelog](https://keepachangelog.com),
 and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.4.0] - 2026-10-18
+
+### Added
+- **Guests.** Invite people into your show with a link: they open it in their browser, type their name, pick camera and mic, and wait in the green room. Chisme shows each guest's camera and mic level; bring them on stage, mute or remove them. On-stage guests are in the recording and the streams. Guests hear you and see the show. Runs on your own LiveKit Cloud project (free tier), with links signed by Chisme.
+- **Guest scenes:** Interview, Panel (up to three guests), Guest full screen, and Screen + guests, in a "Guests" template group, ready to pin. A "+ Guest" layer in the scene editor.
+- **Instagram Live** as a streaming destination (vertical 1080x1920).
+- **New sound pad:** 18 studio-quality sounds (applause, laugh, ooh, drum roll, rimshot, ta-da, suspense, correct, buzzer, air horn, ding, bell, cash register, whoosh, glitch, record scratch, boing, crickets), replacing the old synthesized ones.
+
+### Fixed
+- Vertical streams (TikTok, Instagram) are now exactly 1080x1920.
+- The command line now shows stream errors and English status words.
+- The sidebar fits in short windows.
 ## [0.3.1] - 2026-10-18
 
 ### Added

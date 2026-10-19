@@ -132,9 +132,9 @@ pub enum Cmd {
     Replay(Option<f64>),
     /// Save the replay buffer (None: a timestamped file in the output folder).
     SaveReplay(Option<PathBuf>),
-    /// Change a camera control (zoom, exposure…; auto where supported).
+    /// Change a camera control (zoom, exposureâ€¦; auto where supported).
     CameraControl(crate::win::camera::Ctl, i32, bool),
-    /// Mark a chapter at this moment of the recording (None: "Capítulo N").
+    /// Mark a chapter at this moment of the recording (None: "CapÃ­tulo N").
     Marker(Option<String>),
     /// Media Board.
     Media(MediaCmd),
@@ -200,7 +200,7 @@ pub struct Status {
     pub streams: Vec<StreamStatus>,
     /// Replay buffer: (seconds held, bytes held).
     pub replay: Option<(f64, usize)>,
-    /// A message for the user (stream failed to start, replay saved…) and
+    /// A message for the user (stream failed to start, replay savedâ€¦) and
     /// a counter that changes with each one.
     pub notice: Option<String>,
     pub notices: u64,
@@ -541,7 +541,7 @@ impl Rec {
     }
 }
 
-/// GPU resources for one frame: screen → canvas (+ camera) → NV12 / preview.
+/// GPU resources for one frame: screen â†’ canvas (+ camera) â†’ NV12 / preview.
 struct Pipeline {
     canvas: ID3D11Texture2D,
     scale: Blitter,
@@ -552,6 +552,8 @@ struct Pipeline {
     layer_tex: Vec<((u32, u32), ID3D11Texture2D, ID3D11ShaderResourceView)>,
     /// Image files and rendered text, by key (most recent last).
     pictures: Vec<(String, Option<((u32, u32), ID3D11ShaderResourceView)>)>,
+    /// Guests' cameras: identity, frame counter, size, texture.
+    guest_tex: Vec<(String, u64, (u32, u32), ID3D11Texture2D, ID3D11ShaderResourceView)>,
     preview_blit: Blitter,
     preview_tex: ID3D11Texture2D,
     staging: ID3D11Texture2D,
@@ -644,6 +646,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
         matte,
         layer_tex: vec![],
         pictures: vec![],
+        guest_tex: vec![],
         preview_blit: Blitter::new(&gpu, out, preview_size, 30, false)?,
         canvas_rtv: {
             let mut v = None;
@@ -835,7 +838,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     Cmd::Marker(label) => match &mut rec {
                         Some(r) => {
                             let at = r.stats.frames_out as f64 * period;
-                            let label = label.unwrap_or_else(|| crate::t!("Chapter {}", "Capítulo {}", r.markers.len() + 1));
+                            let label = label.unwrap_or_else(|| crate::t!("Chapter {}", "CapÃ­tulo {}", r.markers.len() + 1));
                             notify(crate::t!("Marker \"{}\" at {}", "Marcador \"{}\" en {}", label, crate::chapters::stamp(at)));
                             r.markers.push(crate::chapters::Marker { at, label });
                             r.stats.markers = r.markers.len();
@@ -871,7 +874,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                         };
                         let r = match (lives.iter().find(|o| o.is_replay()), path) {
                             (Some(o), Ok(p)) => o.save_replay(p),
-                            (None, _) => Err(anyhow!(crate::i18n::l("the replay buffer is off", "el replay buffer está apagado"))),
+                            (None, _) => Err(anyhow!(crate::i18n::l("the replay buffer is off", "el replay buffer estÃ¡ apagado"))),
                             (_, Err(e)) => Err(e.into()),
                         };
                         match r {
@@ -961,8 +964,17 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     synth_t += n as f64 / RATE;
                 }
             }
+            let to_guests = crate::guests::outgoing().lock().unwrap().active;
             for p in packets {
                 let i = (p.kind == AudioKind::Mic) as usize;
+                if to_guests && p.kind == AudioKind::Mic {
+                    let frames = resample_48k(&p.frames, p.rate);
+                    let mut o = crate::guests::outgoing().lock().unwrap();
+                    o.mic.push_back(frames);
+                    while o.mic.len() > 100 {
+                        o.mic.pop_front();
+                    }
+                }
                 peak[i] = p.frames.iter().fold(peak[i], |a, f| a.max(f[0].abs()).max(f[1].abs()));
                 if let Some(r) = &mut rec {
                     for m in r.mixers.iter_mut().filter(|m| m.takes(p.kind)) {
@@ -998,6 +1010,33 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
             }
             players.retain(|p| !p.done(t));
 
+            // Guests on stage: into the mix and the speakers, like media.
+            let room = crate::guests::shared().lock().unwrap().clone();
+            if let Some(room) = room {
+                let blocks: Vec<(f64, bool, Vec<[f32; 2]>)> = room.lock().unwrap().audio.drain(..).collect();
+                if !blocks.is_empty() && monitor.is_none() {
+                    match Monitor::start() {
+                        Ok(m) => monitor = Some(m),
+                        Err(e) => notify(crate::t!("Speakers: {:#}", "Bocinas: {:#}", e)),
+                    }
+                }
+                for (pts, on_air, frames) in blocks {
+                    if inject && on_air {
+                        if let Some(r) = &mut rec {
+                            for m in r.mixers.iter_mut().filter(|m| m.takes(AudioKind::Media)) {
+                                m.push(AudioKind::Media, pts, RATE, frames.clone());
+                            }
+                        }
+                        if let Some(m) = &mut live_mix {
+                            m.push(AudioKind::Media, pts, RATE, frames.clone());
+                        }
+                    }
+                    if let Some(m) = &monitor {
+                        m.play(pts, frames);
+                    }
+                }
+            }
+
             let rec_slot = rec.as_ref().and_then(|r| r.pauses.offset_at((slot - r.start_slot) as f64).map(|off| slot - r.start_slot - off));
             if rec.is_some()
                 && rec_slot.is_none()
@@ -1005,7 +1044,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
             {
                 r.stats.paused_slots += 1;
             }
-            let want_preview = shared.preview_on.load(Ordering::Relaxed) && slot % preview_every == 0;
+            let want_preview = (shared.preview_on.load(Ordering::Relaxed) || to_guests) && slot % preview_every == 0;
             let mut live_failed: Vec<(u64, String)> = vec![];
             if rec_slot.is_some() || want_preview || !lives.is_empty() {
                 let info = cap.info();
@@ -1159,7 +1198,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                         notify(crate::t!("Replay saved: {}", "Replay guardado: {}", p.file_name().unwrap_or_default().to_string_lossy()));
                     }
                     Ok(Err(e)) => notify(format!("Replay: {e:#}")),
-                    Err(_) => notify(crate::i18n::l("Replay: saving failed", "Replay: falló al guardar").into()),
+                    Err(_) => notify(crate::i18n::l("Replay: saving failed", "Replay: fallÃ³ al guardar").into()),
                 }
             }
 
@@ -1287,9 +1326,42 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 };
                 pipe.overlay.draw_texture_alpha(&srv, size, [1.0, 1.0], Some(rect), &style, true)?;
             }
+            LayerSource::Guest => {
+                let Some((size, srv)) = guest_texture(gpu, pipe, layer.guest as usize) else {
+                    continue;
+                };
+                let r = if layer.fill { rect } else { fit_in(rect, size.0 as f64 / size.1.max(1) as f64) };
+                pipe.overlay.draw_texture(&srv, size, [1.0, 1.0], Some(r), &style)?;
+            }
         }
     }
     Ok(())
+}
+
+/// The camera of the guest in stage seat `seat`, uploaded when it changes.
+fn guest_texture(gpu: &Gpu, pipe: &mut Pipeline, seat: usize) -> Option<((u32, u32), ID3D11ShaderResourceView)> {
+    let room = crate::guests::shared().lock().unwrap().clone()?;
+    let (id, seq, (size, px)) = {
+        let s = room.lock().unwrap();
+        let g = *s.on_stage().get(seat)?;
+        (g.identity.clone(), g.frame_seq, g.frame.clone()?)
+    };
+    let i = match pipe.guest_tex.iter().position(|t| t.0 == id && t.2 == size) {
+        Some(i) => i,
+        None => {
+            pipe.guest_tex.retain(|t| t.0 != id);
+            let tex = gpu.texture(size.0, size.1, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_SHADER_RESOURCE).ok()?;
+            let srv = Overlay::srv_of(gpu, &tex).ok()?;
+            pipe.guest_tex.push((id, 0, size, tex, srv));
+            pipe.guest_tex.len() - 1
+        }
+    };
+    let t = &mut pipe.guest_tex[i];
+    if t.1 != seq {
+        t.1 = seq;
+        gpu.locked(|| unsafe { gpu.context.UpdateSubresource(&t.3, 0, None, px.as_ptr() as _, size.0 * 4, 0) });
+    }
+    Some((size, t.4.clone()))
 }
 
 /// An RGBA picture as a texture, made once per `key` by `make` (width,
@@ -1312,6 +1384,22 @@ fn picture(gpu: &Gpu, pipe: &mut Pipeline, key: &str, make: impl FnOnce() -> Opt
     }
     pipe.pictures.push((key.to_string(), made.clone()));
     made
+}
+
+/// Audio at 48 kHz for guests (linear; it's a voice chat).
+fn resample_48k(frames: &[[f32; 2]], rate: f64) -> Vec<[f32; 2]> {
+    if (rate - 48000.0).abs() < 1.0 || frames.is_empty() {
+        return frames.to_vec();
+    }
+    let n = (frames.len() as f64 * 48000.0 / rate).round() as usize;
+    (0..n)
+        .map(|i| {
+            let x = i as f64 * rate / 48000.0;
+            let (a, k) = (x.floor() as usize, (x.fract()) as f32);
+            let (p, q) = (frames[a.min(frames.len() - 1)], frames[(a + 1).min(frames.len() - 1)]);
+            [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k]
+        })
+        .collect()
 }
 
 /// A layout rect as whole pixels (x, y, w, h).
@@ -1337,6 +1425,10 @@ fn read_preview(gpu: &Gpu, pipe: &Pipeline, shared: &Shared) -> Result<()> {
             }
         }
         p.seq += 1;
+        // Guests watch the program.
+        if crate::guests::outgoing().lock().unwrap().active {
+            *crate::guests::program().lock().unwrap() = Some(((w, h), Arc::new(p.rgba.clone()), p.seq));
+        }
         gpu.context.Unmap(&pipe.staging, 0);
     }
     Ok(())

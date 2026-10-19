@@ -5,6 +5,7 @@
 
 mod editor;
 mod groups;
+mod guests_ui;
 pub mod hotkeys;
 mod media_ui;
 mod prompter;
@@ -33,6 +34,7 @@ pub enum Page {
     Studio,
     Live,
     Templates,
+    Guests,
     Media,
     Prompter,
     Library,
@@ -156,6 +158,12 @@ pub struct App {
     pub cam_tab: u8,
     /// The "new group" name being typed in a Move-to-group menu.
     pub group_input: String,
+    /// Guests: the open room, the API secret being typed, the invite links
+    /// made, and camera thumbnails (identity -> frame counter, texture).
+    pub guest_room: Option<crate::guests::Room>,
+    pub guest_secret: String,
+    pub guest_links: Vec<String>,
+    pub guest_thumbs: std::collections::HashMap<String, (u64, egui::TextureHandle)>,
 }
 
 const HISTORY: usize = 200; // 10 s at 20 Hz
@@ -175,9 +183,13 @@ impl App {
         let mut hotkeys = hotkeys::Registry::new();
         hotkeys.apply(&settings.hotkeys);
         crate::templates::ensure_starters(&settings.pip());
-        if !settings.media_seeded {
+        crate::templates::ensure_guest_scenes();
+        // The starter sound pad, and the new pack in place of the old one.
+        if settings.media_pack < 2 {
+            settings.media.retain(|m| !crate::media::is_old_starter(m));
             settings.media.extend(crate::media::starter_sounds());
             settings.media_seeded = true;
+            settings.media_pack = 2;
             let _ = settings.save();
         }
         let keys = Platform::ALL.iter().map(|p| (*p, crate::win::creds::get(p.id()).unwrap_or_default())).collect();
@@ -192,6 +204,7 @@ impl App {
                 Ok("templates") => Page::Templates,
                 Ok("prompter") => Page::Prompter,
                 Ok("media") => Page::Media,
+                Ok("guests") => Page::Guests,
                 Ok("library") => Page::Library,
                 Ok("settings") => Page::Settings,
                 _ => Page::Studio,
@@ -230,6 +243,10 @@ impl App {
             confirm_delete: false,
             cam_tab: 0,
             group_input: String::new(),
+            guest_room: None,
+            guest_secret: crate::win::creds::get("livekit").unwrap_or_default(),
+            guest_links: vec![],
+            guest_thumbs: Default::default(),
         }
     }
 
@@ -365,7 +382,7 @@ impl App {
             return;
         }
         if let Some(e) = &self.engine {
-            e.send(Cmd::StartStream(StreamSpec { platform: p, url, key, vertical: self.settings.is_vertical(p), kbps: None }));
+            e.send(Cmd::StartStream(StreamSpec { platform: p, url, key, vertical: self.settings.is_vertical(p) || p == Platform::Instagram, kbps: None }));
         }
     }
 

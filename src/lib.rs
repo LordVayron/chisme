@@ -9,6 +9,7 @@ pub mod chapters;
 pub mod compose;
 pub mod engine;
 pub mod export;
+pub mod guests;
 pub mod i18n;
 pub mod icon;
 pub mod layout;

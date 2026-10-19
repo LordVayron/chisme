@@ -34,8 +34,8 @@ Run `chisme-app.exe` (or `chisme.exe` with no arguments).
 
 ## Streaming and replay buffer
 
-The **Live** page streams to YouTube, Twitch, TikTok, X or any RTMP(S) server, several at
-once.
+The **Live** page streams to YouTube, Twitch, TikTok, Instagram, X or any RTMP(S) server, all
+at once.
 
 **How it works:**
 - Each destination gets its own hardware H.264 encode (an async Media Foundation MFT on
@@ -50,6 +50,7 @@ once.
 | YouTube | built in | 1080p, up to 60 fps, 12 Mb/s |
 | Twitch | built in | 1080p, up to 60 fps, 6 Mb/s |
 | TikTok | from LIVE Studio (changes each time) | vertical 1080×1920, 30 fps, 4.5 Mb/s, AAC 128 |
+| Instagram | from instagram.com → Create → Live video → Streaming software | vertical 1080×1920, 30 fps, 4.5 Mb/s, keyframe 2 s, AAC 128 |
 | X | from Media Studio → Producer | 1080p, 30 fps, 9 Mb/s, keyframe 3 s, AAC 128 |
 | Custom | any rtmp:// or rtmps:// | 1080p, up to 60 fps, 6 Mb/s |
 
@@ -62,6 +63,25 @@ chisme record --stream youtube                # record and stream
 chisme record --no-record --stream twitch --stream "tiktok=rtmp://…/game" --replay 60
 chisme save-replay                            # from another terminal
 ```
+
+## Guests
+
+The **Guests** page brings people into your show from a link. There's nothing for them to
+install.
+
+1. Create a free project at [cloud.livekit.io](https://cloud.livekit.io), open
+   **Settings → API keys**, and paste the URL, key and secret into Chisme. The secret goes to
+   Credential Manager. The free tier covers about 80 hours of guest time a month.
+2. Click **Open green room**, then **Copy invite link** once per guest. Each link lasts 24 hours.
+3. The guest opens the link, types a name, picks a camera and mic, and joins. They wait there,
+   hearing you and seeing the show.
+4. In Chisme, each guest shows up with their camera and mic level. **On stage** puts them in the
+   recording and streams. **Mute** silences them. **Remove** ends their session.
+
+The guest scenes (**Interview**, **Panel**, **Guest full screen**, **Screen + guests**) place
+the people on stage in the order you brought them on. You can pin them to quick access, or add
+a **+ Guest** layer to any scene. The green room page is `docs/join/` in this repo, served by
+GitHub Pages.
 
 ## Automatic subtitles (Whisper)
 

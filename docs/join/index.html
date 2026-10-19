@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chisme Green Room</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --text:#e8eaf0; --dim:#9aa1b1; --accent:#ff4d6d; --ok:#3ccf91; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, "Segoe UI", sans-serif; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
+  main { width:100%; max-width:720px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; }
+  h1 { margin:0 0 4px; font-size:22px; } h1 b { color:var(--accent); }
+  p.sub { margin:0 0 20px; color:var(--dim); }
+  video { width:100%; aspect-ratio:16/9; background:#000; border-radius:12px; object-fit:cover; transform:scaleX(-1); }
+  #program { transform:none; object-fit:contain; display:none; margin-top:12px; }
+  label { display:block; margin:14px 0 4px; color:var(--dim); font-size:13px; }
+  input, select { width:100%; padding:10px 12px; background:#0f1115; color:var(--text); border:1px solid var(--line); border-radius:10px; font:inherit; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:560px) { .row { grid-template-columns:1fr; } }
+  button { margin-top:18px; width:100%; padding:12px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:600 16px system-ui; cursor:pointer; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
+  button:disabled { opacity:.5; cursor:default; }
+  .meter { height:6px; background:#0f1115; border-radius:3px; overflow:hidden; margin-top:6px; } .meter i { display:block; height:100%; width:0; background:var(--ok); transition:width .08s; }
+  .status { margin-top:16px; padding:14px; border-radius:12px; background:#0f1115; border:1px solid var(--line); text-align:center; font-size:17px; }
+  .status.live { border-color:var(--accent); color:var(--accent); font-weight:700; }
+  .err { color:#ff8a8a; margin-top:12px; }
+  .controls { display:flex; gap:10px; } .controls button { margin-top:12px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1><b>Chisme</b> green room</h1>
+  <p class="sub" id="sub">Set up your camera and microphone, then join. The host brings you on when it's time.</p>
+
+  <video id="self" autoplay muted playsinline></video>
+  <div class="meter"><i id="lvl"></i></div>
+
+  <section id="setup">
+    <label for="name">Your name (shown on stream)</label>
+    <input id="name" maxlength="40" placeholder="Your name">
+    <div class="row">
+      <div><label for="cam">Camera</label><select id="cam"></select></div>
+      <div><label for="mic">Microphone</label><select id="mic"></select></div>
+    </div>
+    <button id="join" disabled>Join the green room</button>
+  </section>
+
+  <section id="room" hidden>
+    <div class="status" id="status">Waiting for the host…</div>
+    <video id="program" autoplay playsinline></video>
+    <div class="controls">
+      <button class="ghost" id="tmic">Mute mic</button>
+      <button class="ghost" id="tcam">Turn camera off</button>
+      <button class="ghost" id="leave">Leave</button>
+    </div>
+  </section>
+  <div class="err" id="err"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.5.7/dist/livekit-client.umd.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const hash = new URLSearchParams(location.hash.slice(1));
+const url = hash.get('url'), token = hash.get('token');
+let stream = null, room = null, audioCtx = null;
+
+function fail(msg) { $('err').textContent = msg; }
+if (!url || !token) fail('This link is incomplete. Ask the host for a new invite link.');
+try { $('name').value = localStorage.getItem('chisme-name') || ''; } catch (e) {}
+
+async function preview() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const cam = $('cam').value, mic = $('mic').value;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: cam ? { deviceId: { exact: cam }, width: 1280, height: 720 } : { width: 1280, height: 720 },
+      audio: mic ? { deviceId: { exact: mic }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true },
+    });
+  } catch (e) { fail('Camera or microphone blocked: ' + e.message + '. Allow access in your browser and reload.'); return; }
+  $('self').srcObject = stream;
+  meter(stream);
+  $('join').disabled = !(url && token);
+}
+
+async function devices() {
+  const list = await navigator.mediaDevices.enumerateDevices();
+  for (const [sel, kind] of [[$('cam'), 'videoinput'], [$('mic'), 'audioinput']]) {
+    const cur = sel.value; sel.innerHTML = '';
+    list.filter(d => d.kind === kind).forEach((d, i) => sel.add(new Option(d.label || (kind === 'videoinput' ? 'Camera ' : 'Microphone ') + (i + 1), d.deviceId)));
+    if (cur) sel.value = cur;
+  }
+}
+
+function meter(s) {
+  audioCtx = audioCtx || new AudioContext();
+  const an = audioCtx.createAnalyser(); an.fftSize = 512;
+  audioCtx.createMediaStreamSource(s).connect(an);
+  const buf = new Uint8Array(an.fftSize);
+  (function tick() {
+    an.getByteTimeDomainData(buf);
+    let p = 0; for (const v of buf) p = Math.max(p, Math.abs(v - 128));
+    $('lvl').style.width = Math.min(100, p / 128 * 160) + '%';
+    if (s.active) requestAnimationFrame(tick);
+  })();
+}
+
+$('cam').onchange = $('mic').onchange = preview;
+
+$('join').onclick = async () => {
+  const name = $('name').value.trim();
+  if (!name) { $('name').focus(); return fail('Enter your name first.'); }
+  try { localStorage.setItem('chisme-name', name); } catch (e) {}
+  fail(''); $('join').disabled = true; $('join').textContent = 'Joining…';
+  const L = LivekitClient;
+  room = new L.Room({ adaptiveStream: true, dynacast: true });
+  room.on(L.RoomEvent.DataReceived, (payload) => {
+    try {
+      const m = JSON.parse(new TextDecoder().decode(payload));
+      if (m.type === 'kick' && m.id === room.localParticipant.identity) {
+        room.disconnect(); stream && stream.getTracks().forEach(t => t.stop());
+        $('status').textContent = 'The host ended your session. Thanks for joining!';
+        return;
+      }
+      if (m.type === 'stage') {
+        const on = m.on.includes(room.localParticipant.identity);
+        $('status').textContent = on ? "You're LIVE" : 'Waiting for the host…';
+        $('status').classList.toggle('live', on);
+      }
+    } catch (e) {}
+  });
+  room.on(L.RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === 'video') { track.attach($('program')); $('program').style.display = 'block'; }
+    else { const el = track.attach(); document.body.appendChild(el); }
+  });
+  room.on(L.RoomEvent.Disconnected, () => { $('status').textContent = 'You left the room.'; $('status').classList.remove('live'); });
+  try {
+    await room.connect(url, token);
+    await room.localParticipant.setName(name);
+    for (const t of stream.getTracks()) await room.localParticipant.publishTrack(t, { source: t.kind === 'video' ? L.Track.Source.Camera : L.Track.Source.Microphone });
+  } catch (e) {
+    $('join').disabled = false; $('join').textContent = 'Join the green room';
+    return fail('Could not join: ' + e.message + '. The link may have expired; ask the host for a new one.');
+  }
+  $('setup').hidden = true; $('room').hidden = false;
+  $('sub').textContent = 'Hi ' + name + '! Stay on this page. You will hear the host and see the show below.';
+};
+
+$('tmic').onclick = () => { const t = stream.getAudioTracks()[0]; t.enabled = !t.enabled; $('tmic').textContent = t.enabled ? 'Mute mic' : 'Unmute mic'; };
+$('tcam').onclick = () => { const t = stream.getVideoTracks()[0]; t.enabled = !t.enabled; $('tcam').textContent = t.enabled ? 'Turn camera off' : 'Turn camera on'; };
+$('leave').onclick = () => { room && room.disconnect(); stream && stream.getTracks().forEach(t => t.stop()); };
+
+if (!navigator.mediaDevices) fail('This browser can\'t reach your camera here. Open the link in Chrome, Edge, Firefox or Safari.');
+else (async () => { await preview(); await devices(); navigator.mediaDevices.ondevicechange = devices; })();
+</script>
+</body>
+</html>

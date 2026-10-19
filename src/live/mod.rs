@@ -30,6 +30,7 @@ pub enum Platform {
     Youtube,
     Twitch,
     Tiktok,
+    Instagram,
     X,
     Custom,
 }
@@ -48,13 +49,14 @@ pub struct Preset {
 }
 
 impl Platform {
-    pub const ALL: [Platform; 5] = [Platform::Youtube, Platform::Twitch, Platform::Tiktok, Platform::X, Platform::Custom];
+    pub const ALL: [Platform; 6] = [Platform::Youtube, Platform::Twitch, Platform::Tiktok, Platform::Instagram, Platform::X, Platform::Custom];
 
     pub fn label(self) -> &'static str {
         match self {
             Platform::Youtube => "YouTube",
             Platform::Twitch => "Twitch",
             Platform::Tiktok => "TikTok",
+            Platform::Instagram => "Instagram",
             Platform::X => "X",
             Platform::Custom => crate::i18n::l("Custom RTMP", "RTMP personalizado"),
         }
@@ -66,6 +68,7 @@ impl Platform {
             Platform::Youtube => "youtube",
             Platform::Twitch => "twitch",
             Platform::Tiktok => "tiktok",
+            Platform::Instagram => "instagram",
             Platform::X => "x",
             Platform::Custom => "custom",
         }
@@ -86,6 +89,7 @@ impl Platform {
             Platform::Youtube => l("Key: YouTube Studio → Go live.", "Clave: YouTube Studio → Emitir en vivo."),
             Platform::Twitch => l("Key: Creator Dashboard → Settings → Stream.", "Clave: Panel de control → Configuración → Transmisión."),
             Platform::Tiktok => l("URL and key: TikTok LIVE Studio (they change every time).", "URL y clave: TikTok LIVE Studio (cambian cada vez)."),
+            Platform::Instagram => l("URL and key: instagram.com → Create → Live video → Streaming software.", "URL y clave: instagram.com → Crear → Video en vivo → Software de transmisión."),
             Platform::X => l("URL and key: X Media Studio → Producer → Sources.", "URL y clave: X Media Studio → Producer → Fuentes."),
             Platform::Custom => l("Restream, MediaMTX, nginx-rtmp or another server.", "Restream, MediaMTX, nginx-rtmp u otro servidor."),
         }
@@ -94,6 +98,8 @@ impl Platform {
     /// - YouTube: 1080p60 at 12 Mb/s (30 fps: 10 Mb/s), keyframes every 2 s.
     /// - Twitch: at most 1080p60 and 6 Mb/s.
     /// - TikTok: vertical 1080x1920, 30 fps, ~4.5 Mb/s CBR, AAC 128 kb/s.
+    /// - Instagram (Live Producer): vertical 1080x1920, 30 fps, at most
+    ///   6 Mb/s (4.5 used), AAC 128 kb/s, keyframes every 2 s.
     /// - X (Media Studio Producer): H.264, at most 1080p30, 9 Mb/s
     ///   recommended, AAC 128 kb/s max, keyframes every 3 s.
     pub fn preset(self, fps: u32) -> Preset {
@@ -102,6 +108,7 @@ impl Platform {
             Platform::Youtube => p((1920, 1080), 60, if fps > 30 { 12_000 } else { 10_000 }, 2.0, 160, false),
             Platform::Twitch => p((1920, 1080), 60, 6_000, 2.0, 160, false),
             Platform::Tiktok => p((1080, 1920), 30, 4_500, 2.0, 128, true),
+            Platform::Instagram => p((1080, 1920), 30, 4_500, 2.0, 128, true),
             Platform::X => p((1920, 1080), 30, 9_000, 3.0, 128, false),
             Platform::Custom => p((1920, 1080), 60, 6_000, 2.0, 160, false),
         }
@@ -188,8 +195,12 @@ pub fn geometry(canvas: (u32, u32), bbox: (u32, u32), vertical: bool) -> ((u32, 
     let (bw, bh) = if (src.3 > src.2) != (bbox.1 > bbox.0) { (bbox.1, bbox.0) } else { bbox };
     let k = (bw as f64 / src.2 as f64).min(bh as f64 / src.3 as f64);
     // Never upscale, except vertical video: TikTok expects 1080x1920.
-    let k = if vertical { k } else { k.min(1.0) };
-    (src, (even(src.2 as f64 * k), even(src.3 as f64 * k)))
+    if vertical {
+        // Exactly the platform's size (TikTok and Instagram expect 1080x1920);
+        // the crop's rounding stretches it by well under 1%.
+        return (src, (bw, bh));
+    }
+    (src, (even(src.2 as f64 * k.min(1.0)), even(src.3 as f64 * k.min(1.0))))
 }
 
 enum Sink {
@@ -385,11 +396,11 @@ mod tests {
         // Landscape 1080p canvas → centered 9:16 crop, scaled up to TikTok's size.
         let (src, size) = geometry((1920, 1080), (1080, 1920), true);
         assert_eq!(src, (656, 0, 606, 1080));
-        assert_eq!(size, (1076, 1920));
+        assert_eq!(size, (1080, 1920));
         // A 4K canvas crops then scales into the box.
         let (src, size) = geometry((3840, 2160), (1080, 1920), true);
         assert_eq!(src.2, 1214);
-        assert_eq!(size, (1078, 1920));
+        assert_eq!(size, (1080, 1920));
         // A portrait monitor needs no crop.
         let (src, size) = geometry((1080, 1920), (1080, 1920), true);
         assert_eq!((src, size), ((0, 0, 1080, 1920), (1080, 1920)));

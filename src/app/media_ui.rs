@@ -372,11 +372,11 @@ pub fn strip(app: &mut App, ui: &mut Ui, card: Rect) {
     }
 }
 
-fn truncate(s: &str, n: usize) -> String {
+pub(super) fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n { s.to_string() } else { format!("{}…", s.chars().take(n.saturating_sub(1)).collect::<String>()) }
 }
 
-fn pill(ui: &mut Ui, r: Rect, id: &str, label: &str, primary: bool) -> bool {
+pub(super) fn pill(ui: &mut Ui, r: Rect, id: &str, label: &str, primary: bool) -> bool {
     let resp = ui.interact(r, Id::new(id), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
     let fill = if primary {
         if resp.hovered() { Color32::from_gray(225) } else { Color32::WHITE }

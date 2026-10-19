@@ -80,6 +80,10 @@ pub struct Settings {
     pub media: Vec<crate::media::Item>,
     /// The starter sound pad was added once (deleting it keeps it gone).
     pub media_seeded: bool,
+    /// Which starter pack was added (2: the ElevenLabs one).
+    pub media_pack: u32,
+    /// Guests: your LiveKit project (the secret is in Credential Manager).
+    pub guests: crate::guests::Config,
     /// Interface language.
     pub language: crate::i18n::Lang,
     /// Global shortcuts.
@@ -205,7 +209,7 @@ impl Default for Settings {
             brand: Brand::default(),
             template: None,
             stream_urls: vec![],
-            vertical: vec![Platform::Tiktok],
+            vertical: vec![Platform::Tiktok, Platform::Instagram],
             replay_enabled: false,
             replay_secs: 60.0,
             subtitles_auto: false,
@@ -214,6 +218,8 @@ impl Default for Settings {
             prompter: Prompter::default(),
             media: vec![],
             media_seeded: false,
+            media_pack: 0,
+            guests: Default::default(),
             language: crate::i18n::Lang::En,
             hotkeys: Hotkeys::default(),
             vbg: Default::default(),

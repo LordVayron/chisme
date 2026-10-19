@@ -205,6 +205,45 @@ pub fn starters(pip: &PipSpec) -> Vec<Template> {
     vec![mk(Scene::ScreenCam.label(), Scene::ScreenCam), mk(Scene::SideBySide.label(), Scene::SideBySide), mk(crate::i18n::l("Presenter", "Presentador"), Scene::CamScreen)]
 }
 
+/// Scenes for shows with guests: Interview (you and one guest), Panel (you
+/// and up to three guests), Guest full screen, and Screen + guests.
+pub fn guest_scenes() -> Vec<Template> {
+    use crate::layout::{Layer, Source};
+    let cam = |rect: [f64; 4]| Layer { source: Source::Camera, rect, fill: true, roundness: 0.06, mirror: true, ..Default::default() };
+    let guest = |seat: u8, rect: [f64; 4]| Layer { source: Source::Guest, guest: seat, rect, fill: true, roundness: 0.06, ..Default::default() };
+    let bg = [14u8, 14, 18];
+    let mk = |name: &str, layers: Vec<Layer>| Template {
+        name: name.into(),
+        layout: Layout { layers, background: bg, background_image: None },
+        brand: None,
+        assets: vec![],
+        group: crate::i18n::l("Guests", "Invitados").into(),
+    };
+    let (w, h) = (0.47, 0.45);
+    vec![
+        mk(crate::i18n::l("Interview", "Entrevista"), vec![cam([0.02, 0.25, 0.47, 0.5]), guest(0, [0.51, 0.25, 0.47, 0.5])]),
+        mk(
+            crate::i18n::l("Panel", "Panel"),
+            vec![cam([0.02, 0.03, w, h]), guest(0, [0.51, 0.03, w, h]), guest(1, [0.02, 0.5, w, h]), guest(2, [0.51, 0.5, w, h])],
+        ),
+        mk(crate::i18n::l("Guest full screen", "Invitado en pantalla completa"), vec![guest(0, [0.0, 0.0, 1.0, 1.0]), cam([0.78, 0.74, 0.2, 0.22])]),
+        mk(
+            crate::i18n::l("Screen + guests", "Pantalla + invitados"),
+            vec![Layer { source: Source::Screen, rect: [0.0, 0.0, 0.78, 1.0], fill: false, ..Default::default() }, cam([0.79, 0.02, 0.2, 0.3]), guest(0, [0.79, 0.35, 0.2, 0.3]), guest(1, [0.79, 0.68, 0.2, 0.3])],
+        ),
+    ]
+}
+
+/// Add the guest scenes if they aren't there yet.
+pub fn ensure_guest_scenes() {
+    let have = list();
+    for t in guest_scenes() {
+        if !have.iter().any(|h| h.name == t.name) {
+            let _ = save(&t);
+        }
+    }
+}
+
 /// Create the starters the first time (when there's no templates folder).
 pub fn ensure_starters(pip: &PipSpec) {
     if !dir().exists() {

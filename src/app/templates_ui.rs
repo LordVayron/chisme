@@ -32,8 +32,8 @@ pub fn thumbnail(p: &Painter, frame: Rect, layout: &Layout, brand: &Brand) {
                 p.rect_filled(lr, round, Color32::from_rgb(52, 54, 60));
                 p.rect_filled(Rect::from_min_size(lr.min, vec2(lr.width(), (lr.height() * 0.08).max(2.0))), CornerRadius::ZERO, Color32::from_rgb(80, 82, 90));
             }
-            Source::Camera => {
-                p.rect_filled(lr, round, Color32::from_rgb(120, 70, 40));
+            Source::Camera | Source::Guest => {
+                p.rect_filled(lr, round, if l.source == Source::Guest { Color32::from_rgb(40, 90, 110) } else { Color32::from_rgb(120, 70, 40) });
                 let c = lr.center();
                 let s = lr.height().min(lr.width());
                 p.circle_filled(c - vec2(0.0, s * 0.1), s * 0.18, Color32::from_rgb(230, 190, 160));

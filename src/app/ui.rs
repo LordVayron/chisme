@@ -35,6 +35,7 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
             Page::Studio => studio(app, ui, body),
             Page::Live => live(app, ui, body),
             Page::Templates => super::templates_ui::page(app, ui, body),
+            Page::Guests => super::guests_ui::page(app, ui, body),
             Page::Media => super::media_ui::page(app, ui, body),
             Page::Prompter => super::prompter::page(app, ui, body),
             Page::Library => library(app, ui, body),
@@ -146,6 +147,7 @@ fn icon(p: &egui::Painter, kind: Page, c: Pos2, color: Color32) {
             p.rect_stroke(Rect::from_center_size(c + vec2(-3.0, -3.0), vec2(16.0, 11.0)), CornerRadius::same(2), s, StrokeKind::Middle);
             p.rect_filled(Rect::from_center_size(c + vec2(3.0, 3.0), vec2(16.0, 11.0)), CornerRadius::same(2), color);
         }
+        Page::Guests => super::guests_ui::icon(p, c, color),
         Page::Media => super::media_ui::icon(p, c, color),
         Page::Prompter => super::prompter::icon(p, c, color),
         Page::Library => {
@@ -197,12 +199,15 @@ fn sidebar(app: &mut App, ui: &mut Ui, rect: Rect) {
             app.page = page;
         }
     };
+    // 56 px apart, closer in short windows so Settings never collides.
+    let step = ((rect.height() - 108.0 - 96.0) / 6.0).clamp(40.0, 56.0);
     item(Page::Studio, rect.top() + 108.0, l("Studio", "Estudio"));
-    item(Page::Live, rect.top() + 164.0, l("Live", "En vivo"));
-    item(Page::Templates, rect.top() + 220.0, l("Templates", "Plantillas"));
-    item(Page::Media, rect.top() + 276.0, "Media Board");
-    item(Page::Prompter, rect.top() + 332.0, l("Script & teleprompter", "Guion y teleprompter"));
-    item(Page::Library, rect.top() + 388.0, l("Recordings", "Grabaciones"));
+    item(Page::Live, rect.top() + 108.0 + step, l("Live", "En vivo"));
+    item(Page::Templates, rect.top() + 108.0 + step * 2.0, l("Templates", "Plantillas"));
+    item(Page::Guests, rect.top() + 108.0 + step * 3.0, l("Guests", "Invitados"));
+    item(Page::Media, rect.top() + 108.0 + step * 4.0, "Media Board");
+    item(Page::Prompter, rect.top() + 108.0 + step * 5.0, l("Script & teleprompter", "Guion y teleprompter"));
+    item(Page::Library, rect.top() + 108.0 + step * 6.0, l("Recordings", "Grabaciones"));
     item(Page::Settings, rect.bottom() - 40.0, l("Settings", "Ajustes"));
 }
 
@@ -213,6 +218,7 @@ fn header(app: &mut App, ui: &mut Ui, content: Rect) -> Rect {
         Page::Studio => "Chisme",
         Page::Live => l("Live", "En vivo"),
         Page::Templates => l("Templates", "Plantillas"),
+        Page::Guests => l("Guests", "Invitados"),
         Page::Media => "Media Board",
         Page::Prompter => l("Script", "Guion"),
         Page::Library => l("Recordings", "Grabaciones"),
@@ -1188,6 +1194,7 @@ fn brand(p: Platform) -> Color32 {
         Platform::Youtube => Color32::from_rgb(255, 0, 51),
         Platform::Twitch => Color32::from_rgb(145, 70, 255),
         Platform::Tiktok => Color32::from_rgb(37, 244, 238),
+        Platform::Instagram => Color32::from_rgb(225, 48, 108),
         Platform::X => Color32::WHITE,
         Platform::Custom => ORANGE,
     }
@@ -1196,7 +1203,7 @@ fn brand(p: Platform) -> Color32 {
 fn live(app: &mut App, ui: &mut Ui, area: Rect) {
     let cols = if area.width() < 760.0 { 1 } else if area.width() < 1180.0 { 2 } else { 3 };
     let gap = 16.0;
-    let rows = 6usize.div_ceil(cols);
+    let rows = (Platform::ALL.len() + 1).div_ceil(cols);
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             let width = area.width() - 4.0;
@@ -1207,7 +1214,7 @@ fn live(app: &mut App, ui: &mut Ui, area: Rect) {
             for (i, p) in Platform::ALL.into_iter().enumerate() {
                 platform_card(app, ui, cell(i), p);
             }
-            replay_card(app, ui, cell(5));
+            replay_card(app, ui, cell(Platform::ALL.len()));
         });
     });
 }
@@ -1239,6 +1246,7 @@ fn platform_card(app: &mut App, ui: &mut Ui, card: Rect, p: Platform) {
                 let hint = match p {
                     Platform::X => "rtmps://va.pscp.tv:443/x",
                     Platform::Tiktok => "rtmp://push-rtmp-….tiktokcdn.com/…",
+                    Platform::Instagram => "rtmps://edgetee-upload-….fbcdn.net:443/rtmp/",
                     _ => l("rtmp:// or rtmps://…", "rtmp:// o rtmps://…"),
                 };
                 if ui.add(egui::TextEdit::singleline(&mut url).hint_text(hint).desired_width(inner.width())).changed() {

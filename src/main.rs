@@ -172,7 +172,7 @@ struct RecordArgs {
     #[arg(long, value_name = "FILE", conflicts_with = "bg_blur")]
     bg_image: Option<PathBuf>,
 
-    /// Go live: youtube, twitch, tiktok=URL, x=URL or an rtmp(s):// URL
+    /// Go live: youtube, twitch, tiktok=URL, instagram=URL, x=URL or an rtmp(s):// URL
     /// (repeatable). Keys come from $CHISME_STREAM_KEY or `chisme stream-key`.
     #[arg(long, value_name = "DEST")]
     stream: Vec<String>,
@@ -198,10 +198,11 @@ fn parse_dest(d: &str) -> Result<(Platform, String)> {
         "youtube" => Platform::Youtube,
         "twitch" => Platform::Twitch,
         "tiktok" => Platform::Tiktok,
+        "instagram" | "ig" => Platform::Instagram,
         "x" | "twitter" => Platform::X,
         "custom" => Platform::Custom,
         _ if d.starts_with("rtmp://") || d.starts_with("rtmps://") => return Ok((Platform::Custom, d.to_string())),
-        _ => bail!("unknown stream destination {d:?}: use youtube, twitch, tiktok=URL, x=URL or rtmp(s)://…"),
+        _ => bail!("unknown stream destination {d:?}: use youtube, twitch, tiktok=URL, instagram=URL, x=URL or rtmp(s)://…"),
     };
     if platform.default_url().is_none() && url.is_empty() {
         bail!("{} needs its server URL: --stream {}=rtmps://…", platform.label(), platform.id());
@@ -308,7 +309,7 @@ fn record(a: RecordArgs) -> Result<()> {
     for (platform, url) in &streams {
         let key = std::env::var("CHISME_STREAM_KEY").ok().filter(|k| !k.is_empty()).or_else(|| win::creds::get(platform.id()));
         let Some(key) = key else { bail!("no stream key for {}: set CHISME_STREAM_KEY or run `chisme stream-key {}`", platform.label(), platform.id()) };
-        let vertical = a.vertical || *platform == Platform::Tiktok;
+        let vertical = a.vertical || matches!(platform, Platform::Tiktok | Platform::Instagram);
         engine.send(Cmd::StartStream(StreamSpec { platform: *platform, url: url.clone(), key, vertical, kbps: None }));
     }
     if let Some(secs) = a.replay {
@@ -346,7 +347,10 @@ fn record(a: RecordArgs) -> Result<()> {
             if !a.quiet {
                 let mut line = String::new();
                 for s in &st.streams {
-                    line += &format!("  {} {} {:.1} Mb/s {}  ", s.name, s.state, s.bitrate / 1e6, clock(s.duration));
+                    line += &format!("  {} {} {:.1} Mb/s {}  ", s.name, chisme::live::state_label(&s.state), s.bitrate / 1e6, clock(s.duration));
+                    if let Some(e) = &s.error {
+                        line += &format!("[{e}]  ");
+                    }
                 }
                 if let Some((held, bytes)) = st.replay {
                     line += &format!("  replay {held:.0} s ({:.0} MB)", bytes as f64 / 1e6);
