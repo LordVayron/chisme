@@ -423,6 +423,83 @@ pub fn program() -> &'static Mutex<Option<((u32, u32), Arc<Vec<u8>>, u64)>> {
 mod tests {
     use super::*;
 
+    /// Against a real LiveKit project: `CHISME_LK_URL`, `CHISME_LK_KEY`,
+    /// and the secret in Credential Manager. A fake guest joins with an
+    /// invite link and sends a camera and a tone; the host must get both,
+    /// and hear them in the show once on stage.
+    #[test]
+    #[ignore]
+    fn live_room_end_to_end() {
+        use livekit::options::TrackPublishOptions;
+        use livekit::prelude::*;
+        use livekit::webrtc::audio_source::native::NativeAudioSource;
+        use livekit::webrtc::audio_source::{AudioSourceOptions, RtcAudioSource};
+        use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
+        use livekit::webrtc::video_source::native::NativeVideoSource;
+        use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
+        let secret = crate::win::creds::get("livekit").expect("secret");
+        let cfg = Config { url: std::env::var("CHISME_LK_URL").unwrap(), api_key: std::env::var("CHISME_LK_KEY").unwrap(), room: new_room_name() };
+        let host = start(cfg.clone(), secret.clone()).unwrap();
+        let link = invite_link(&cfg, &secret).unwrap();
+        let tok = link.split("token=").nth(1).unwrap().to_string();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let _guest = rt.block_on(async {
+            let (room, mut ev) = Room::connect(&cfg.url, &tok, RoomOptions::default()).await.unwrap();
+            room.local_participant().set_name("Test Guest".into()).await.unwrap();
+            let vs = NativeVideoSource::new(VideoResolution { width: 640, height: 360 }, false);
+            room.local_participant().publish_track(LocalTrack::Video(LocalVideoTrack::create_video_track("cam", RtcVideoSource::Native(vs.clone()))), TrackPublishOptions { source: TrackSource::Camera, ..Default::default() }).await.unwrap();
+            let au = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 2, 100);
+            room.local_participant().publish_track(LocalTrack::Audio(LocalAudioTrack::create_audio_track("mic", RtcAudioSource::Native(au.clone()))), TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() }).await.unwrap();
+            tokio::spawn(async move {
+                let mut n = 0u64;
+                loop {
+                    let mut b = I420Buffer::new(640, 360);
+                    let (y, _, _) = b.data_mut();
+                    y.fill((n * 3 % 255) as u8);
+                    vs.capture_frame(&VideoFrame::new(VideoRotation::VideoRotation0, b));
+                    for _ in 0..3 {
+                        let data: Vec<i16> = (0..480).flat_map(|i| { let s = ((i as f32 / 48.0 * std::f32::consts::TAU).sin() * 8000.0) as i16; [s, s] }).collect();
+                        let _ = au.capture_frame(&livekit::webrtc::audio_frame::AudioFrame { data: data.into(), sample_rate: 48000, num_channels: 2, samples_per_channel: 480 }).await;
+                    }
+                    n += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                }
+            });
+            // Stage messages from the host.
+            let got_stage = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let gs = got_stage.clone();
+            tokio::spawn(async move {
+                while let Some(e) = ev.recv().await {
+                    if let RoomEvent::DataReceived { payload, .. } = e
+                        && String::from_utf8_lossy(&payload).contains("\"on\":[\"guest-")
+                    {
+                        gs.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            });
+            (room, got_stage)
+        });
+        let t0 = std::time::Instant::now();
+        let id = loop {
+            assert!(t0.elapsed().as_secs() < 30, "guest never showed up with video and audio: {:?}", host.state.lock().unwrap().error);
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let s = host.state.lock().unwrap();
+            if let Some(g) = s.guests.iter().find(|g| g.frame.is_some() && g.level > 0.05) {
+                println!("guest {:?} {} frame {:?} level {:.2}", g.name, g.identity, g.frame.as_ref().map(|f| f.0), g.level);
+                break g.identity.clone();
+            }
+        };
+        assert_eq!(host.state.lock().unwrap().guests[0].name, "Test Guest");
+        host.state.lock().unwrap().audio.clear();
+        host.send(Cmd::Stage(id.clone(), true));
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let s = host.state.lock().unwrap();
+        assert!(s.audio.iter().any(|a| a.1), "on-stage audio flagged for the show");
+        assert_eq!(s.on_stage()[0].identity, id);
+        assert!(_guest.1.load(std::sync::atomic::Ordering::Relaxed), "guest told they're on stage");
+        println!("ok: video, audio, stage");
+    }
+
     #[test]
     fn invite_links_carry_a_signed_token() {
         let cfg = Config { url: "wss://demo.livekit.cloud".into(), api_key: "APIdemo".into(), room: "chisme-abc".into() };

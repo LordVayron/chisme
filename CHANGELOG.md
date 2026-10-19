@@ -3,6 +3,14 @@
 All notable changes to Chisme. The format follows [Keep a Changelog](https://keepachangelog.com),
 and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.4.1] - 2026-10-19
+
+### Changed
+- The guest page (green room) now has Chisme's look: the black background with the warm glow, Krona One titles with the rainbow bar, glass cards, a live mic meter, a name tag on the preview, and a PREVIEW / GREEN ROOM / LIVE badge. On phones the status shows first.
+
+### Added
+- A live end-to-end guest test (`cargo test -- --ignored live_room_end_to_end`) against a real LiveKit project.
+
 ## [0.4.0] - 2026-10-18
 
 ### Added

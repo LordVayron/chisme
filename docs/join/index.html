@@ -3,60 +3,168 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chisme Green Room</title>
+<meta name="robots" content="noindex">
+<title>Chisme · Green room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Krona+One&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --text:#e8eaf0; --dim:#9aa1b1; --accent:#ff4d6d; --ok:#3ccf91; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, "Segoe UI", sans-serif; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
-  main { width:100%; max-width:720px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; }
-  h1 { margin:0 0 4px; font-size:22px; } h1 b { color:var(--accent); }
-  p.sub { margin:0 0 20px; color:var(--dim); }
-  video { width:100%; aspect-ratio:16/9; background:#000; border-radius:12px; object-fit:cover; transform:scaleX(-1); }
-  #program { transform:none; object-fit:contain; display:none; margin-top:12px; }
-  label { display:block; margin:14px 0 4px; color:var(--dim); font-size:13px; }
-  input, select { width:100%; padding:10px 12px; background:#0f1115; color:var(--text); border:1px solid var(--line); border-radius:10px; font:inherit; }
-  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  @media (max-width:560px) { .row { grid-template-columns:1fr; } }
-  button { margin-top:18px; width:100%; padding:12px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:600 16px system-ui; cursor:pointer; }
-  button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
-  button:disabled { opacity:.5; cursor:default; }
-  .meter { height:6px; background:#0f1115; border-radius:3px; overflow:hidden; margin-top:6px; } .meter i { display:block; height:100%; width:0; background:var(--ok); transition:width .08s; }
-  .status { margin-top:16px; padding:14px; border-radius:12px; background:#0f1115; border:1px solid var(--line); text-align:center; font-size:17px; }
-  .status.live { border-color:var(--accent); color:var(--accent); font-weight:700; }
-  .err { color:#ff8a8a; margin-top:12px; }
-  .controls { display:flex; gap:10px; } .controls button { margin-top:12px; }
+  /* Chisme's look: Ventura black, wide display type, rainbow gradient, glass cards. */
+  :root {
+    --bg:#0a0a0b; --card:rgba(18,18,19,.72); --edge:rgba(255,255,255,.07); --control:rgba(255,255,255,.05);
+    --text:#f2f2f4; --muted:#96969e; --faint:#5c5c64; --green:#4cd68c;
+    --red:#d6262e; --orange:#ff6600; --yellow:#ffc400; --sky:#78beff; --blue:#2454ff;
+    --rainbow:linear-gradient(90deg,var(--red),var(--orange),var(--yellow),var(--sky),var(--blue));
+    --r-card:24px; --r-control:12px;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; min-height:100%; }
+  body { background:var(--bg); color:var(--text); font:15px/1.5 Inter,system-ui,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
+  /* Warm light behind everything, like the app. */
+  body::before, body::after { content:""; position:fixed; pointer-events:none; z-index:-1; border-radius:50%; filter:blur(40px); }
+  body::before { width:70vw; height:70vh; left:30vw; top:5vh; background:radial-gradient(closest-side,rgba(110,48,14,.55),transparent); }
+  body::after { width:50vw; height:50vh; left:-10vw; bottom:-15vh; background:radial-gradient(closest-side,rgba(48,30,80,.45),transparent); }
+
+  .wrap { max-width:1040px; margin:0 auto; padding:24px 16px 40px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:28px; }
+  .logo { width:34px; height:34px; border-radius:50%; background:conic-gradient(from 200deg,var(--red),var(--orange),var(--yellow),var(--sky),var(--blue),var(--red)); position:relative; flex:none; }
+  .logo::after { content:""; position:absolute; inset:6px; border-radius:50%; background:var(--bg); }
+  .brand { font:20px "Krona One",sans-serif; letter-spacing:.02em; }
+  .tag { margin-left:auto; padding:6px 12px; border-radius:999px; background:var(--control); border:1px solid var(--edge); color:var(--muted); font-size:12.5px; font-weight:500; display:flex; gap:8px; align-items:center; }
+  .tag i { width:7px; height:7px; border-radius:50%; background:var(--green); }
+
+  h1 { font:clamp(26px,5vw,38px)/1.15 "Krona One",sans-serif; margin:0; display:inline-block; }
+  h1 + .bar { height:3px; border-radius:2px; background:var(--rainbow); margin:10px 0 10px; width:100%; max-width:220px; }
+  .lead { color:var(--muted); margin:0 0 24px; max-width:560px; }
+
+  .grid { display:grid; grid-template-columns:1.35fr 1fr; gap:20px; align-items:start; }
+  @media (max-width:820px) { .grid { grid-template-columns:1fr; } #waiting { order:-1; } }
+  .card { background:var(--card); border:1px solid var(--edge); border-radius:var(--r-card); padding:20px; backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
+  .card h2 { font:600 15px Inter,sans-serif; margin:0 0 4px; }
+  .card p.sub { margin:0 0 14px; color:var(--muted); font-size:13px; }
+
+  .stage { position:relative; border-radius:18px; overflow:hidden; background:#0c0c0e; aspect-ratio:16/9; }
+  .stage video { width:100%; height:100%; object-fit:cover; display:block; }
+  #self { transform:scaleX(-1); }
+  .stage .empty { position:absolute; inset:0; display:grid; place-items:center; color:var(--faint); font-size:13px; text-align:center; padding:20px; }
+  .chip { position:absolute; left:12px; top:12px; padding:5px 11px 5px 9px; border-radius:999px; background:rgba(0,0,0,.62); font:600 11px Inter,sans-serif; letter-spacing:.04em; display:flex; align-items:center; gap:7px; }
+  .chip i { width:7px; height:7px; border-radius:50%; background:var(--faint); }
+  .chip.live i { background:var(--red); box-shadow:0 0 0 0 rgba(214,38,46,.7); animation:pulse 1.6s infinite; }
+  .chip.wait i { background:var(--yellow); }
+  @keyframes pulse { 70% { box-shadow:0 0 0 8px rgba(214,38,46,0); } 100% { box-shadow:0 0 0 0 rgba(214,38,46,0); } }
+  .nameplate { position:absolute; left:12px; bottom:14px; padding:6px 12px; border-radius:10px; background:rgba(0,0,0,.62); font:500 13px Inter,sans-serif; max-width:70%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .nameplate:empty { display:none; }
+  .meter { position:absolute; left:0; right:0; bottom:0; height:4px; background:rgba(255,255,255,.06); }
+  .meter i { display:block; height:100%; width:0; background:var(--rainbow); background-size:400px 100%; transition:width .08s; }
+
+  label { display:block; margin:14px 0 6px; color:var(--muted); font-size:12.5px; font-weight:500; }
+  input, select { width:100%; height:42px; padding:0 14px; background:var(--control); color:var(--text); border:1px solid var(--edge); border-radius:var(--r-control); font:inherit; outline:none; transition:border-color .15s, background .15s; appearance:none; -webkit-appearance:none; }
+  select { background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%); background-position:calc(100% - 18px) 18px, calc(100% - 13px) 18px; background-size:5px 5px; background-repeat:no-repeat; padding-right:34px; }
+  select option { background:#141416; }
+  input:focus, select:focus { border-color:rgba(255,255,255,.28); background:rgba(255,255,255,.08); }
+  input::placeholder { color:var(--faint); }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:46px; padding:0 22px; border-radius:999px; border:0; font:600 15px Inter,sans-serif; cursor:pointer; transition:transform .08s, opacity .15s, background .15s; }
+  .btn:active { transform:scale(.98); }
+  .btn.primary { background:#fff; color:#000; width:100%; margin-top:20px; }
+  .btn.primary:disabled { opacity:.35; cursor:default; }
+  .btn.ghost { background:var(--control); color:var(--text); border:1px solid var(--edge); height:42px; padding:0 16px; font-size:13.5px; }
+  .btn.ghost:hover { background:rgba(255,255,255,.09); }
+  .btn.ghost.off { color:var(--red); border-color:rgba(214,38,46,.45); }
+  .btn.danger:hover { color:var(--red); }
+  .err { color:#ff7a7a; font-size:13px; margin-top:12px; }
+  .err:empty { display:none; }
+
+  .status { display:flex; gap:14px; align-items:center; padding:16px 18px; border-radius:18px; background:var(--control); border:1px solid var(--edge); }
+  .status .dot { width:12px; height:12px; border-radius:50%; background:var(--yellow); flex:none; animation:breathe 2s ease-in-out infinite; }
+  .status b { display:block; font:16px "Krona One",sans-serif; font-weight:400; }
+  .status span { color:var(--muted); font-size:13px; }
+  .status.live { border-color:rgba(214,38,46,.5); background:linear-gradient(90deg,rgba(214,38,46,.16),rgba(255,102,0,.06)); }
+  .status.live .dot { background:var(--red); animation:pulse 1.6s infinite; box-shadow:0 0 0 0 rgba(214,38,46,.7); }
+  .status.ended .dot { background:var(--faint); animation:none; }
+  @keyframes breathe { 50% { opacity:.35; } }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+  .controls .btn { flex:1; min-width:110px; }
+  .show-title { margin:18px 0 8px; color:var(--muted); font-size:12.5px; font-weight:500; display:flex; justify-content:space-between; }
+  #program { object-fit:contain; background:#000; }
+  .tips { margin:16px 0 0; padding:0; list-style:none; color:var(--muted); font-size:13px; }
+  .tips li { padding:7px 0 7px 26px; position:relative; border-top:1px solid var(--edge); }
+  .tips li::before { content:""; position:absolute; left:4px; top:14px; width:8px; height:8px; border-radius:50%; background:var(--rainbow); }
+  footer { margin-top:28px; color:var(--faint); font-size:12px; text-align:center; }
+  footer a { color:var(--muted); }
   [hidden] { display:none !important; }
 </style>
 </head>
 <body>
-<main>
-  <h1><b>Chisme</b> green room</h1>
-  <p class="sub" id="sub">Set up your camera and microphone, then join. The host brings you on when it's time.</p>
+<div class="wrap">
+  <header>
+    <div class="logo"></div>
+    <div class="brand">Chisme</div>
+    <div class="tag"><i></i>Green room</div>
+  </header>
 
-  <video id="self" autoplay muted playsinline></video>
-  <div class="meter"><i id="lvl"></i></div>
+  <h1 id="title">You're invited</h1>
+  <div class="bar"></div>
+  <p class="lead" id="lead">Set up your camera and mic, then step into the green room. The host brings you on when it's time.</p>
 
-  <section id="setup">
-    <label for="name">Your name (shown on stream)</label>
-    <input id="name" maxlength="40" placeholder="Your name">
-    <div class="row">
-      <div><label for="cam">Camera</label><select id="cam"></select></div>
-      <div><label for="mic">Microphone</label><select id="mic"></select></div>
+  <div class="grid">
+    <div class="card">
+      <div class="stage">
+        <video id="self" autoplay muted playsinline></video>
+        <div class="empty" id="selfEmpty">Your camera will show here</div>
+        <div class="chip" id="selfChip"><i></i><span>PREVIEW</span></div>
+        <div class="nameplate" id="plate"></div>
+        <div class="meter"><i id="lvl"></i></div>
+      </div>
+
+      <section id="room" hidden>
+        <div class="controls">
+          <button class="btn ghost" id="tmic">Mute mic</button>
+          <button class="btn ghost" id="tcam">Camera off</button>
+          <button class="btn ghost danger" id="leave">Leave</button>
+        </div>
+        <div class="show-title"><span>The show</span><span>what the audience sees</span></div>
+        <div class="stage">
+          <video id="program" autoplay playsinline></video>
+          <div class="empty" id="programEmpty">The show appears here once the host is connected</div>
+        </div>
+      </section>
     </div>
-    <button id="join" disabled>Join the green room</button>
-  </section>
 
-  <section id="room" hidden>
-    <div class="status" id="status">Waiting for the host…</div>
-    <video id="program" autoplay playsinline></video>
-    <div class="controls">
-      <button class="ghost" id="tmic">Mute mic</button>
-      <button class="ghost" id="tcam">Turn camera off</button>
-      <button class="ghost" id="leave">Leave</button>
+    <div class="card" id="setup">
+      <h2>Before you join</h2>
+      <p class="sub">This is how you'll appear on stream.</p>
+      <label for="name">Your name</label>
+      <input id="name" maxlength="40" placeholder="Name shown on screen" autocomplete="name">
+      <label for="cam">Camera</label>
+      <select id="cam"></select>
+      <label for="mic">Microphone</label>
+      <select id="mic"></select>
+      <button class="btn primary" id="join" disabled>Join the green room</button>
+      <div class="err" id="err"></div>
+      <ul class="tips">
+        <li>Use headphones so the show doesn't echo.</li>
+        <li>Face a window or a lamp for a brighter picture.</li>
+        <li>Keep this tab open while you're on.</li>
+      </ul>
     </div>
-  </section>
-  <div class="err" id="err"></div>
-</main>
+
+    <div class="card" id="waiting" hidden>
+      <div class="status" id="status">
+        <div class="dot"></div>
+        <div><b id="statusTitle">Waiting for the host</b><span id="statusText">You're in the green room. Stay on this page.</span></div>
+      </div>
+      <ul class="tips">
+        <li>The host can see and hear you now.</li>
+        <li>When you go live, this turns red.</li>
+        <li>You'll hear the host and the show here.</li>
+      </ul>
+      <div class="err" id="err2"></div>
+    </div>
+  </div>
+
+  <footer>Chisme by <a href="https://github.com/LordVayron/chisme">LordVayron</a> &amp; 079 AI Labs · Your camera and mic go only to this show.</footer>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.5.7/dist/livekit-client.umd.min.js"></script>
 <script>
@@ -65,9 +173,31 @@ const hash = new URLSearchParams(location.hash.slice(1));
 const url = hash.get('url'), token = hash.get('token');
 let stream = null, room = null, audioCtx = null;
 
-function fail(msg) { $('err').textContent = msg; }
-if (!url || !token) fail('This link is incomplete. Ask the host for a new invite link.');
-try { $('name').value = localStorage.getItem('chisme-name') || ''; } catch (e) {}
+function fail(msg) { $('err').textContent = msg; $('err2').textContent = msg; }
+
+function setStatus(kind) {
+  const s = $('status'), chip = $('selfChip');
+  s.classList.remove('live', 'ended'); chip.classList.remove('live', 'wait');
+  if (kind === 'live') {
+    s.classList.add('live'); chip.classList.add('live');
+    $('statusTitle').textContent = "You're live";
+    $('statusText').textContent = 'The audience can see and hear you.';
+    chip.lastChild.textContent = 'LIVE';
+    $('title').textContent = "You're live";
+  } else if (kind === 'ended') {
+    s.classList.add('ended');
+    $('statusTitle').textContent = 'Session ended';
+    $('statusText').textContent = 'Thanks for joining! You can close this tab.';
+    chip.lastChild.textContent = 'OFF';
+    $('title').textContent = 'Thanks for joining';
+  } else {
+    chip.classList.add('wait');
+    $('statusTitle').textContent = 'Waiting for the host';
+    $('statusText').textContent = "You're in the green room. Stay on this page.";
+    chip.lastChild.textContent = 'GREEN ROOM';
+    $('title').textContent = 'Green room';
+  }
+}
 
 async function preview() {
   if (stream) stream.getTracks().forEach(t => t.stop());
@@ -77,8 +207,8 @@ async function preview() {
       video: cam ? { deviceId: { exact: cam }, width: 1280, height: 720 } : { width: 1280, height: 720 },
       audio: mic ? { deviceId: { exact: mic }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true },
     });
-  } catch (e) { fail('Camera or microphone blocked: ' + e.message + '. Allow access in your browser and reload.'); return; }
-  $('self').srcObject = stream;
+  } catch (e) { fail('Your browser blocked the camera or mic (' + e.message + '). Allow access and reload.'); return; }
+  $('self').srcObject = stream; $('selfEmpty').hidden = true;
   meter(stream);
   $('join').disabled = !(url && token);
 }
@@ -105,11 +235,12 @@ function meter(s) {
   })();
 }
 
+$('name').oninput = () => { $('plate').textContent = $('name').value.trim(); };
 $('cam').onchange = $('mic').onchange = preview;
 
 $('join').onclick = async () => {
   const name = $('name').value.trim();
-  if (!name) { $('name').focus(); return fail('Enter your name first.'); }
+  if (!name) { $('name').focus(); return fail('Type your name first.'); }
   try { localStorage.setItem('chisme-name', name); } catch (e) {}
   fail(''); $('join').disabled = true; $('join').textContent = 'Joining…';
   const L = LivekitClient;
@@ -119,38 +250,37 @@ $('join').onclick = async () => {
       const m = JSON.parse(new TextDecoder().decode(payload));
       if (m.type === 'kick' && m.id === room.localParticipant.identity) {
         room.disconnect(); stream && stream.getTracks().forEach(t => t.stop());
-        $('status').textContent = 'The host ended your session. Thanks for joining!';
+        setStatus('ended');
         return;
       }
-      if (m.type === 'stage') {
-        const on = m.on.includes(room.localParticipant.identity);
-        $('status').textContent = on ? "You're LIVE" : 'Waiting for the host…';
-        $('status').classList.toggle('live', on);
-      }
+      if (m.type === 'stage') setStatus(m.on.includes(room.localParticipant.identity) ? 'live' : 'wait');
     } catch (e) {}
   });
   room.on(L.RoomEvent.TrackSubscribed, (track) => {
-    if (track.kind === 'video') { track.attach($('program')); $('program').style.display = 'block'; }
-    else { const el = track.attach(); document.body.appendChild(el); }
+    if (track.kind === 'video') { track.attach($('program')); $('programEmpty').hidden = true; }
+    else { const el = track.attach(); el.hidden = true; document.body.appendChild(el); }
   });
-  room.on(L.RoomEvent.Disconnected, () => { $('status').textContent = 'You left the room.'; $('status').classList.remove('live'); });
+  room.on(L.RoomEvent.Disconnected, () => setStatus('ended'));
   try {
     await room.connect(url, token);
     await room.localParticipant.setName(name);
     for (const t of stream.getTracks()) await room.localParticipant.publishTrack(t, { source: t.kind === 'video' ? L.Track.Source.Camera : L.Track.Source.Microphone });
   } catch (e) {
     $('join').disabled = false; $('join').textContent = 'Join the green room';
-    return fail('Could not join: ' + e.message + '. The link may have expired; ask the host for a new one.');
+    return fail("Couldn't join (" + e.message + '). The link may have expired; ask the host for a new one.');
   }
-  $('setup').hidden = true; $('room').hidden = false;
-  $('sub').textContent = 'Hi ' + name + '! Stay on this page. You will hear the host and see the show below.';
+  $('setup').hidden = true; $('waiting').hidden = false; $('room').hidden = false;
+  $('lead').textContent = 'Hi ' + name + '! The host can see you. Stay on this page.';
+  setStatus('wait');
 };
 
-$('tmic').onclick = () => { const t = stream.getAudioTracks()[0]; t.enabled = !t.enabled; $('tmic').textContent = t.enabled ? 'Mute mic' : 'Unmute mic'; };
-$('tcam').onclick = () => { const t = stream.getVideoTracks()[0]; t.enabled = !t.enabled; $('tcam').textContent = t.enabled ? 'Turn camera off' : 'Turn camera on'; };
-$('leave').onclick = () => { room && room.disconnect(); stream && stream.getTracks().forEach(t => t.stop()); };
+$('tmic').onclick = () => { const t = stream.getAudioTracks()[0]; t.enabled = !t.enabled; $('tmic').textContent = t.enabled ? 'Mute mic' : 'Unmute mic'; $('tmic').classList.toggle('off', !t.enabled); };
+$('tcam').onclick = () => { const t = stream.getVideoTracks()[0]; t.enabled = !t.enabled; $('tcam').textContent = t.enabled ? 'Camera off' : 'Camera on'; $('tcam').classList.toggle('off', !t.enabled); };
+$('leave').onclick = () => { room && room.disconnect(); stream && stream.getTracks().forEach(t => t.stop()); setStatus('ended'); };
 
-if (!navigator.mediaDevices) fail('This browser can\'t reach your camera here. Open the link in Chrome, Edge, Firefox or Safari.');
+try { $('name').value = localStorage.getItem('chisme-name') || ''; $('plate').textContent = $('name').value; } catch (e) {}
+if (!url || !token) fail('This link is incomplete. Ask the host for a new invite link.');
+if (!navigator.mediaDevices) fail("This browser can't reach your camera here. Open the link in Chrome, Edge, Firefox or Safari.");
 else (async () => { await preview(); await devices(); navigator.mediaDevices.ondevicechange = devices; })();
 </script>
 </body>
