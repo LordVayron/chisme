@@ -3,6 +3,24 @@
 All notable changes to Chisme. The format follows [Keep a Changelog](https://keepachangelog.com),
 and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.3.0] - 2026-10-18
+
+### Added
+- **Camera controls** in the Studio: zoom, pan/tilt pad, focus, exposure, brightness, contrast, saturation, sharpness, white balance and gain (whatever the camera's driver offers), with Auto and Reset.
+- **Media Board in the Studio**, in place of the recordings list.
+- **Teleprompter button** in the Studio.
+- **Custom scenes:** a background picture, any border color, and a Save window that asks for the name and group.
+- **Groups** for templates and Media Board items (right-click to move one to a group).
+- **Recordings:** select one, several or all, and send them to the Recycle Bin.
+- **Responsive layout:** every page adapts to small windows (down to 720x540).
+
+### Changed
+- The Layers menu only appears while building a custom scene, without the template chips; the add buttons sit at the top.
+- The stats under the preview are a single quiet line.
+
+### Fixed
+- Deleting layers and moving them forward or back didn't work.
+
 ## [0.2.1] - 2026-10-18
 
 ### Added
@@ -44,6 +62,7 @@ and versions follow [Semantic Versioning](https://semver.org).
   TikTok, X and RTMP, a replay buffer, Whisper subtitles, a tray icon, global hotkeys, a command
   line and the installer.
 
+[0.3.0]: https://github.com/LordVayron/chisme/releases/tag/v0.3.0
 [0.2.1]: https://github.com/LordVayron/chisme/releases/tag/v0.2.1
 [0.2.0]: https://github.com/LordVayron/chisme/releases/tag/v0.2.0
 [0.1.0]: https://github.com/LordVayron/chisme/releases/tag/v0.1.0

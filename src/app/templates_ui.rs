@@ -70,7 +70,7 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
             let ok = !app.template_name.trim().is_empty();
             if ui.add_enabled(ok, egui::Button::new(egui::RichText::new(l("Save template", "Guardar plantilla")).strong())).clicked() {
                 let name = std::mem::take(&mut app.template_name);
-                app.save_template(&name);
+                app.save_dialog = Some(super::SaveDialog { name, group: String::new() });
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(l("Import .chisme…", "Importar .chisme…")).clicked() {
@@ -88,7 +88,7 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
 
     // Cards: 4 per row.
     let grid = Rect::from_min_max(pos2(area.left(), quick.bottom() + 16.0), area.max);
-    let cols = 4;
+    let cols = ((grid.width() + 16.0) / 300.0).floor().clamp(1.0, 6.0) as usize;
     let gap = 16.0;
     let cw = (grid.width() - gap * (cols - 1) as f32) / cols as f32;
     let ch = cw * 9.0 / 16.0 + 92.0;
@@ -97,15 +97,19 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
     let custom = app.settings.layout.is_some();
     let brand = app.settings.brand.clone();
     let hk = app.settings.hotkeys.clone();
+    let mut regroup = false;
     ui.scope_builder(UiBuilder::new().max_rect(grid), |ui| {
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-            let rows = templates.len().div_ceil(cols).max(1);
-            let (all, _) = ui.allocate_exact_size(vec2(grid.width(), rows as f32 * (ch + gap)), Sense::hover());
+            let groups: Vec<&str> = templates.iter().map(|t| t.group.as_str()).collect();
+            let all_groups = super::groups::order(&groups);
+            let layout = super::groups::grid(&groups, ui.cursor().min, cols, vec2(cw, ch), gap);
+            let (all, _) = ui.allocate_exact_size(vec2(grid.width(), layout.height.max(ch)), Sense::hover());
+            super::groups::draw_headers(ui.painter(), &layout);
             if templates.is_empty() {
                 ui.painter().text(all.center_top() + vec2(0.0, 60.0), Align2::CENTER_CENTER, l("No templates yet. Build your layout in the Studio and save it here.", "Aún no hay plantillas. Arma tu layout en el Estudio y guárdalo aquí."), body(13.0), MUTED);
             }
             for (i, t) in templates.iter().enumerate() {
-                let card = Rect::from_min_size(pos2(all.left() + (cw + gap) * (i % cols) as f32, all.top() + (ch + gap) * (i / cols) as f32), vec2(cw, ch));
+                let card = layout.cells[i];
                 let p = ui.painter();
                 theme::card(p, card);
                 let active = custom && current.as_deref() == Some(t.name.as_str());
@@ -122,6 +126,13 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                 if resp.clicked() {
                     app.apply_template(t);
                 }
+                resp.context_menu(|ui| {
+                    if let Some(g) = super::groups::menu(ui, &t.group, &all_groups, &mut app.group_input) {
+                        let moved = crate::templates::Template { group: g, ..t.clone() };
+                        let _ = crate::templates::save(&moved);
+                        regroup = true;
+                    }
+                });
                 let p = ui.painter();
                 let ty = thumb.bottom() + 20.0;
                 p.text(pos2(card.left() + 16.0, ty), Align2::LEFT_CENTER, &t.name, medium(14.0), TEXT);
@@ -157,6 +168,9 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
             }
         });
     });
+    if regroup {
+        app.templates = crate::templates::list();
+    }
 }
 
 /// A push pin, filled when pinned.

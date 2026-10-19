@@ -175,11 +175,16 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
     let now = ctx.input(|i| i.time) as f32;
     let mut fire = None;
     let mut remove = None;
+    let mut move_to: Option<(usize, String)> = None;
     let mut save = false;
     ui.scope_builder(UiBuilder::new().max_rect(grid), |ui| {
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-            let rows = items.len().div_ceil(cols).max(1);
-            let (all, _) = ui.allocate_exact_size(vec2(grid.width(), rows as f32 * (ch + gap)), Sense::hover());
+            let groups: Vec<&str> = items.iter().map(|it| it.group.as_str()).collect();
+            let all_groups = super::groups::order(&groups);
+            let origin = ui.cursor().min;
+            let layout = super::groups::grid(&groups, origin, cols, vec2(cw, ch), gap);
+            let (all, _) = ui.allocate_exact_size(vec2(grid.width(), layout.height.max(ch)), Sense::hover());
+            super::groups::draw_headers(ui.painter(), &layout);
             if items.is_empty() {
                 let p = ui.painter();
                 let r = Rect::from_min_size(all.min, vec2(all.width(), 220.0));
@@ -188,7 +193,7 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                 p.text(r.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, "MP3, WAV, M4A · MP4, MOV · PNG, JPG", body(12.5), MUTED);
             }
             for (i, it) in items.iter().enumerate() {
-                let card = Rect::from_min_size(pos2(all.left() + (cw + gap) * (i % cols) as f32, all.top() + (ch + gap) * (i / cols) as f32), vec2(cw, ch));
+                let card = layout.cells[i];
                 let playing = app.status.media.iter().find(|m| m.0 == it.path).map(|m| m.1);
                 let shown = it.kind == Kind::Image && app.status.media_image.as_deref() == Some(it.path.as_str());
                 let active = playing.is_some() || shown;
@@ -224,6 +229,11 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                 if resp.clicked() {
                     fire = Some(i);
                 }
+                resp.context_menu(|ui| {
+                    if let Some(g) = super::groups::menu(ui, &it.group, &all_groups, &mut app.group_input) {
+                        move_to = Some((i, g));
+                    }
+                });
                 // State: progress for sounds and clips, a chip for images.
                 if let Some(prog) = playing {
                     let track = Rect::from_min_max(pos2(art.left() + 12.0, art.bottom() - 10.0), pos2(art.right() - 12.0, art.bottom() - 7.0));
@@ -273,11 +283,89 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
     if let Some(i) = fire {
         app.media_fire(i);
     }
+    if let Some((i, g)) = move_to {
+        app.settings.media[i].group = g;
+        let _ = app.settings.save();
+    }
     if let Some(i) = remove {
         app.media_remove(i);
     }
     if save {
         let _ = app.settings.save();
+    }
+    if !app.status.media.is_empty() {
+        ctx.request_repaint();
+    }
+}
+
+/// The Studio's Media Board: one row of small tiles, grouped like the page.
+pub fn strip(app: &mut App, ui: &mut Ui, card: Rect) {
+    let p = ui.painter().clone();
+    theme::card(&p, card);
+    p.text(card.min + vec2(22.0, 16.0), Align2::LEFT_TOP, "Media Board", medium(14.0), TEXT);
+    let see = Rect::from_min_size(pos2(card.right() - 22.0 - 140.0, card.top() + 11.0), vec2(140.0, 28.0));
+    if pill(ui, see, "media-strip-all", l("Open Media Board", "Abrir Media Board"), false) {
+        app.page = super::Page::Media;
+    }
+    let row = Rect::from_min_max(pos2(card.left() + 16.0, card.top() + 48.0), pos2(card.right() - 16.0, card.bottom() - 12.0));
+    let items = app.settings.media.clone();
+    if items.is_empty() {
+        p.text(row.center(), Align2::CENTER_CENTER, l("Add sounds, clips and images on the Media Board page", "Agrega sonidos, clips e imágenes en la página Media Board"), body(12.5), MUTED);
+        return;
+    }
+    let ctx = ui.ctx().clone();
+    let now = ctx.input(|i| i.time) as f32;
+    let (tw, th) = ((row.height() * 1.25).min(150.0), row.height());
+    // Grouped order: ungrouped first, then each group in turn.
+    let groups: Vec<&str> = items.iter().map(|i| i.group.as_str()).collect();
+    let mut order: Vec<usize> = vec![];
+    for g in super::groups::order(&groups) {
+        order.extend((0..items.len()).filter(|&i| items[i].group == g));
+    }
+    let mut fire = None;
+    ui.scope_builder(UiBuilder::new().max_rect(row), |ui| {
+        egui::ScrollArea::horizontal().auto_shrink([false; 2]).show(ui, |ui| {
+            let (all, _) = ui.allocate_exact_size(vec2(order.len() as f32 * (tw + 10.0), th), Sense::hover());
+            let mut last_group: Option<&str> = None;
+            for (k, &i) in order.iter().enumerate() {
+                let it = &items[i];
+                let r = Rect::from_min_size(pos2(all.left() + k as f32 * (tw + 10.0), all.top()), vec2(tw, th));
+                let playing = app.status.media.iter().any(|m| m.0 == it.path);
+                let shown = it.kind == Kind::Image && app.status.media_image.as_deref() == Some(it.path.as_str());
+                let p = ui.painter().clone();
+                p.rect_filled(r, CornerRadius::same(12), Color32::from_rgb(14, 14, 16));
+                if playing || shown {
+                    p.rect_stroke(r, CornerRadius::same(12), Stroke::new(1.5, ORANGE), StrokeKind::Inside);
+                }
+                let art = Rect::from_min_max(r.min + vec2(6.0, 6.0), pos2(r.right() - 6.0, r.bottom() - 22.0));
+                match if it.kind == Kind::Image { app.thumb(&ctx, &it.path) } else { None } {
+                    Some(t) => {
+                        let s = t.size_vec2();
+                        let k = (art.width() / s.x).min(art.height() / s.y);
+                        egui::Image::from_texture(&t).corner_radius(CornerRadius::same(8)).paint_at(ui, Rect::from_center_size(art.center(), s * k));
+                    }
+                    None => kind_art(&p, art, it.kind, playing, now),
+                }
+                p.text(pos2(r.left() + 8.0, r.bottom() - 11.0), Align2::LEFT_CENTER, truncate(&it.name, (tw / 7.5) as usize), medium(11.5), TEXT);
+                if last_group != Some(it.group.as_str()) && !it.group.is_empty() {
+                    let chip = Rect::from_min_size(r.min + vec2(6.0, 6.0), vec2(8.0 + it.group.chars().count().min(14) as f32 * 6.0, 16.0));
+                    p.rect_filled(chip, CornerRadius::same(8), Color32::from_rgba_premultiplied(0, 0, 0, 170));
+                    p.text(chip.center(), Align2::CENTER_CENTER, truncate(&it.group, 14), body(10.0), MUTED);
+                }
+                last_group = Some(it.group.as_str());
+                let key = if i < 9 { super::hotkeys::Action::Media(i).combo(&app.settings.hotkeys) } else { String::new() };
+                let resp = ui.interact(r, Id::new(("strip", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if key.is_empty() { it.name.clone() } else { format!("{}  ({key})", it.name) });
+                if resp.hovered() {
+                    p.rect_stroke(r, CornerRadius::same(12), Stroke::new(1.0, Color32::from_white_alpha(120)), StrokeKind::Inside);
+                }
+                if resp.clicked() {
+                    fire = Some(i);
+                }
+            }
+        });
+    });
+    if let Some(i) = fire {
+        app.media_fire(i);
     }
     if !app.status.media.is_empty() {
         ctx.request_repaint();

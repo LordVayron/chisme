@@ -59,6 +59,43 @@ pub fn copy_rows(buf: &windows::Win32::Media::MediaFoundation::IMFMediaBuffer, d
     }
 }
 
+/// Move files to the Recycle Bin (recoverable), with no prompts.
+pub fn recycle(files: &[std::path::PathBuf]) -> anyhow::Result<()> {
+    use windows::Win32::UI::Shell::{FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, SHFILEOPSTRUCTW, SHFileOperationW};
+    if files.is_empty() {
+        return Ok(());
+    }
+    // A list of paths, each NUL-terminated, ending with an extra NUL.
+    let mut from: Vec<u16> = vec![];
+    for f in files {
+        from.extend(f.as_os_str().encode_wide_lossy());
+        from.push(0);
+    }
+    from.push(0);
+    let mut op = SHFILEOPSTRUCTW {
+        wFunc: FO_DELETE,
+        pFrom: windows::core::PCWSTR(from.as_ptr()),
+        fFlags: (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI).0 as u16,
+        ..Default::default()
+    };
+    let r = unsafe { SHFileOperationW(&mut op) };
+    if r != 0 || op.fAnyOperationsAborted.as_bool() {
+        anyhow::bail!("the Recycle Bin refused it (code {r})");
+    }
+    Ok(())
+}
+
+trait WideLossy {
+    fn encode_wide_lossy(&self) -> Vec<u16>;
+}
+
+impl WideLossy for std::ffi::OsStr {
+    fn encode_wide_lossy(&self) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        self.encode_wide().collect()
+    }
+}
+
 /// Wraps a COM pointer that is used from more than one thread. D3D11 is
 /// made thread safe with `ID3D11Multithread::SetMultithreadProtected`.
 pub struct SendBox<T>(pub T);

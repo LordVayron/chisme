@@ -4,6 +4,7 @@
 //! work while the window is hidden.
 
 mod editor;
+mod groups;
 pub mod hotkeys;
 mod media_ui;
 mod prompter;
@@ -62,6 +63,13 @@ pub struct Job {
     pub stage: String,
     pub progress: f32,
     pub done: Option<std::result::Result<PathBuf, String>>,
+}
+
+/// "Save scene": its name and group, asked in a small window.
+#[derive(Default)]
+pub struct SaveDialog {
+    pub name: String,
+    pub group: String,
 }
 
 pub struct Recording {
@@ -140,6 +148,14 @@ pub struct App {
     pub sel_layer: Option<usize>,
     pub drag: Option<editor::Drag>,
     pub guides: (Option<f64>, Option<f64>),
+    pub save_dialog: Option<SaveDialog>,
+    /// Recordings page: the ones ticked, and a delete waiting for "Yes".
+    pub selected: std::collections::HashSet<PathBuf>,
+    pub confirm_delete: bool,
+    /// Camera card tab: 0 look, 1 controls.
+    pub cam_tab: u8,
+    /// The "new group" name being typed in a Move-to-group menu.
+    pub group_input: String,
 }
 
 const HISTORY: usize = 200; // 10 s at 20 Hz
@@ -204,6 +220,11 @@ impl App {
             sel_layer: None,
             drag: None,
             guides: (None, None),
+            save_dialog: None,
+            selected: Default::default(),
+            confirm_delete: false,
+            cam_tab: 0,
+            group_input: String::new(),
         }
     }
 
@@ -370,12 +391,12 @@ impl App {
     }
 
     /// Save the current layout (and brand) as a template named `name`.
-    pub fn save_template(&mut self, name: &str) {
+    pub fn save_template(&mut self, name: &str, group: &str) {
         if self.settings.layout.is_none() {
             self.customize_layout();
         }
         let Some(layout) = self.settings.layout.clone() else { return };
-        let t = crate::templates::Template { name: name.trim().to_string(), layout, brand: Some(self.settings.brand.clone()), assets: vec![] };
+        let t = crate::templates::Template { name: name.trim().to_string(), layout, brand: Some(self.settings.brand.clone()), assets: vec![], group: group.trim().to_string() };
         match crate::templates::save(&t) {
             Ok(_) => {
                 self.settings.template = Some(t.name.clone());
@@ -385,6 +406,26 @@ impl App {
             Err(e) => self.toast(t!("Couldn't save the template: {:#}", "No pude guardar la plantilla: {:#}", e)),
         }
         self.templates = crate::templates::list();
+    }
+
+    /// Move recordings to the Recycle Bin (with their subtitles and chapters).
+    pub fn delete_recordings(&mut self, paths: &[PathBuf]) {
+        let mut files: Vec<PathBuf> = vec![];
+        for p in paths {
+            files.push(p.clone());
+            for side in [crate::subtitles::srt_path(p), crate::chapters::path_for(p), p.with_extension("capitulos.txt")] {
+                if side.is_file() {
+                    files.push(side);
+                }
+            }
+        }
+        let n = paths.len();
+        match crate::win::recycle(&files) {
+            Ok(()) => self.toast(t!("{} recording(s) moved to the Recycle Bin", "{} grabación(es) enviadas a la Papelera", n)),
+            Err(e) => self.toast(t!("Couldn't delete: {:#}", "No pude eliminar: {:#}", e)),
+        }
+        self.selected.clear();
+        self.scan_recordings();
     }
 
     pub fn delete_template(&mut self, name: &str) {
@@ -729,7 +770,7 @@ pub fn run() -> Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("Chisme")
             .with_inner_size([1320.0, 880.0])
-            .with_min_inner_size([1040.0, 700.0])
+            .with_min_inner_size([720.0, 540.0])
             .with_icon(icon)
             // With a transparent back buffer, so the teleprompter window
             // can be see-through.

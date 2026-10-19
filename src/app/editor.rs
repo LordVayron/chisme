@@ -172,9 +172,6 @@ pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect) {
     }
 }
 
-fn small(ui: &mut Ui, text: &str, tip: &str) -> bool {
-    ui.add(egui::Button::new(egui::RichText::new(text).size(12.5)).min_size(vec2(28.0, 26.0))).on_hover_text(tip).clicked()
-}
 
 /// The "Capas" card (in place of the camera card while a layout is custom).
 pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
@@ -187,31 +184,12 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
     let has_cam = app.status.cam.is_some();
     let pip = app.settings.pip();
     let mut changed = false;
-    // Quick template switch, numbered like Ctrl+Shift+1…9.
-    let mut apply: Option<crate::templates::Template> = None;
-    let mut to_templates = false;
+    let mut save = false;
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new(tr("Templates", "Plantillas")).color(MUTED).size(13.0));
-                for (i, t) in app.templates.iter().take(6).enumerate() {
-                    let sel = app.settings.template.as_deref() == Some(t.name.as_str());
-                    let label = format!("{}  {}", i + 1, t.name);
-                    if ui.selectable_label(sel, egui::RichText::new(label).size(12.5)).on_hover_text(super::hotkeys::Action::Template(i).combo(&app.settings.hotkeys)).clicked() {
-                        apply = Some(t.clone());
-                    }
-                }
-                if ui.small_button(tr("Save…", "Guardar…")).on_hover_text(tr("Save this layout as a template", "Guardar este layout como plantilla")).clicked() {
-                    to_templates = true;
-                }
-            });
-            ui.add_space(2.0);
-            if has_cam && super::ui::vbg_row(ui, &mut app.settings.vbg, 180.0) {
-                changed = true;
-            }
             let Some(layout) = app.settings.layout.as_mut() else { return };
-            // Add layers.
-            ui.horizontal(|ui| {
+            // Add layers, and save the scene.
+            ui.horizontal_wrapped(|ui| {
                 if ui.button(tr("+ Screen", "+ Pantalla")).clicked() {
                     layout.layers.push(Layer { source: Source::Screen, rect: [0.1, 0.1, 0.5, 0.5], fill: false, ..Default::default() });
                     app.sel_layer = Some(layout.layers.len() - 1);
@@ -235,9 +213,16 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                     app.sel_layer = Some(layout.layers.len() - 1);
                     changed = true;
                 }
+                if ui.add(egui::Button::new(egui::RichText::new(tr("Save scene…", "Guardar escena…")).strong().color(Color32::BLACK)).fill(Color32::WHITE)).on_hover_text(tr("Save this scene as a template", "Guardar esta escena como plantilla")).clicked() {
+                    save = true;
+                }
             });
-            // Background color: the brand's two colors first.
-            ui.horizontal(|ui| {
+            ui.add_space(2.0);
+            if has_cam && super::ui::vbg_row(ui, &mut app.settings.vbg, 180.0) {
+                changed = true;
+            }
+            // Background: a color (the brand's first) or your own picture.
+            ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new(tr("Background", "Fondo")).color(MUTED).size(13.0));
                 let b = &app.settings.brand;
                 let mut colors: Vec<[u8; 3]> = vec![];
@@ -250,11 +235,30 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                     let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
                     ui.painter().circle_filled(r.center(), 7.5, Color32::from_rgb(c[0], c[1], c[2]));
                     ui.painter().circle_stroke(r.center(), 7.5, Stroke::new(1.0, Color32::from_white_alpha(40)));
-                    if layout.background == c {
+                    if layout.background == c && layout.background_image.is_none() {
                         ui.painter().circle_stroke(r.center(), 9.5, Stroke::new(1.5, TEXT));
                     }
                     if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
                         layout.background = c;
+                        layout.background_image = None;
+                        changed = true;
+                    }
+                }
+                if ui.color_edit_button_srgb(&mut layout.background).on_hover_text(tr("Any color", "Cualquier color")).changed() {
+                    layout.background_image = None;
+                    changed = true;
+                }
+                if ui.button(tr("Image…", "Imagen…")).on_hover_text(tr("Your own background picture", "Tu propia imagen de fondo")).clicked()
+                    && let Some(path) = pick_image()
+                {
+                    layout.background_image = Some(path.to_string_lossy().into_owned());
+                    changed = true;
+                }
+                if let Some(bg) = layout.background_image.clone() {
+                    let name = std::path::Path::new(&bg).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    ui.label(egui::RichText::new(name).size(12.0).color(ORANGE));
+                    if icon_button(ui, Icon::Remove, tr("Remove the background picture", "Quitar la imagen de fondo")) {
+                        layout.background_image = None;
                         changed = true;
                     }
                 }
@@ -270,36 +274,35 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                     .fill(if sel { Color32::from_rgba_premultiplied(70, 34, 0, 90) } else { Color32::from_rgba_premultiplied(30, 30, 33, 45) })
                     .corner_radius(CornerRadius::same(10))
                     .inner_margin(egui::Margin::symmetric(8, 3));
-                let r = frame
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let eye = if l.visible { "👁" } else { "—" };
-                            if small(ui, eye, tr("Show / hide", "Mostrar / ocultar")) {
-                                l.visible = !l.visible;
-                                changed = true;
+                // The name selects the layer; the buttons stay clickable (a
+                // click area over the whole row used to swallow them).
+                frame.show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if icon_button(ui, if l.visible { Icon::Eye } else { Icon::EyeOff }, tr("Show / hide", "Mostrar / ocultar")) {
+                            l.visible = !l.visible;
+                            changed = true;
+                        }
+                        let mut name = l.name();
+                        if name.chars().count() > 26 {
+                            name = format!("{}…", name.chars().take(25).collect::<String>());
+                        }
+                        let label = ui.add(egui::Label::new(egui::RichText::new(name).size(13.0).color(if l.visible { TEXT } else { FAINT })).sense(Sense::click()));
+                        if label.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                            app.sel_layer = Some(i);
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if icon_button(ui, Icon::Remove, tr("Delete layer", "Eliminar capa")) {
+                                action = Some((i, 0));
                             }
-                            let mut name = l.name();
-                            if name.chars().count() > 26 {
-                                name = format!("{}…", name.chars().take(25).collect::<String>());
+                            if icon_button(ui, Icon::Down, tr("Send backward", "Enviar atrás")) {
+                                action = Some((i, -1));
                             }
-                            ui.label(egui::RichText::new(name).size(13.0).color(if l.visible { TEXT } else { FAINT }));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if small(ui, "🗑", tr("Remove layer", "Quitar capa")) {
-                                    action = Some((i, 0));
-                                }
-                                if small(ui, "↓", tr("Move down", "Bajar")) {
-                                    action = Some((i, -1));
-                                }
-                                if small(ui, "↑", tr("Move up", "Subir")) {
-                                    action = Some((i, 1));
-                                }
-                            });
+                            if icon_button(ui, Icon::Up, tr("Bring forward", "Traer al frente")) {
+                                action = Some((i, 1));
+                            }
                         });
-                    })
-                    .response;
-                if ui.interact(r.rect, Id::new(("layer-row", i)), Sense::click()).clicked() {
-                    app.sel_layer = Some(i);
-                }
+                    });
+                });
             }
             if let Some((i, a)) = action {
                 match a {
@@ -397,6 +400,7 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                                 changed = true;
                             }
                         }
+                        changed |= ui.color_edit_button_srgb(&mut l.border_color).on_hover_text(tr("Any color", "Cualquier color")).changed();
                     }
                 });
             } else {
@@ -408,12 +412,53 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
     if changed {
         app.settings_changed();
     }
-    if let Some(t) = apply {
-        app.apply_template(&t);
+    if save {
+        app.save_dialog = Some(super::SaveDialog::default());
     }
-    if to_templates {
-        app.page = super::Page::Templates;
+}
+
+#[derive(Clone, Copy)]
+pub enum Icon {
+    Up,
+    Down,
+    Remove,
+    Eye,
+    EyeOff,
+}
+
+/// A small square button with a drawn icon (font glyphs for these aren't
+/// in every font).
+pub fn icon_button(ui: &mut Ui, icon: Icon, tip: &str) -> bool {
+    let (r, resp) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
+    let resp = resp.on_hover_text(tip).on_hover_cursor(CursorIcon::PointingHand);
+    let p = ui.painter();
+    p.rect_filled(r, CornerRadius::same(7), if resp.hovered() { Color32::from_rgba_premultiplied(70, 70, 76, 140) } else { Color32::from_rgba_premultiplied(40, 40, 44, 90) });
+    let c = r.center();
+    let col = TEXT;
+    match icon {
+        Icon::Up => {
+            p.add(egui::Shape::convex_polygon(vec![c + vec2(0.0, -5.0), c + vec2(5.0, 3.0), c + vec2(-5.0, 3.0)], col, Stroke::NONE));
+        }
+        Icon::Down => {
+            p.add(egui::Shape::convex_polygon(vec![c + vec2(-5.0, -3.0), c + vec2(5.0, -3.0), c + vec2(0.0, 5.0)], col, Stroke::NONE));
+        }
+        Icon::Remove => {
+            let red = Color32::from_rgb(255, 90, 80);
+            p.rect_filled(Rect::from_center_size(c + vec2(0.0, 1.5), vec2(8.0, 9.0)), CornerRadius::same(1), red);
+            p.line_segment([c + vec2(-6.0, -4.5), c + vec2(6.0, -4.5)], Stroke::new(1.6, red));
+            p.line_segment([c + vec2(-2.0, -6.0), c + vec2(2.0, -6.0)], Stroke::new(1.6, red));
+        }
+        Icon::Eye | Icon::EyeOff => {
+            let pts: Vec<Pos2> = (0..=16).map(|k| { let a = k as f32 / 16.0 * std::f32::consts::TAU; c + vec2(a.cos() * 7.0, a.sin() * 4.0) }).collect();
+            let dim = if matches!(icon, Icon::EyeOff) { FAINT } else { col };
+            p.add(egui::Shape::closed_line(pts, Stroke::new(1.4, dim)));
+            p.circle_filled(c, 2.2, dim);
+            if matches!(icon, Icon::EyeOff) {
+                p.line_segment([c + vec2(-7.0, 5.0), c + vec2(7.0, -5.0)], Stroke::new(1.5, dim));
+            }
+        }
     }
+    resp.clicked()
 }
 
 /// Windows' file picker for a picture.

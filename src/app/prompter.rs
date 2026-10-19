@@ -394,9 +394,15 @@ fn toolbar(app: &mut App, ui: &mut Ui, bar: Rect) -> bool {
 // ---------------------------------------------------------------- "Guion" page
 
 pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
-    let side_w = 300.0;
-    let editor = Rect::from_min_max(area.min, pos2(area.right() - side_w - 16.0, area.bottom()));
-    let side = Rect::from_min_max(pos2(editor.right() + 16.0, area.top()), area.max);
+    // Narrow windows put the controls under the script.
+    let (editor, side) = if area.width() < 820.0 {
+        let split = area.top() + (area.height() * 0.5).max(260.0);
+        (Rect::from_min_max(area.min, pos2(area.right(), split)), Rect::from_min_max(pos2(area.left(), split + 16.0), area.max))
+    } else {
+        let side_w = 300.0;
+        let editor = Rect::from_min_max(area.min, pos2(area.right() - side_w - 16.0, area.bottom()));
+        (editor, Rect::from_min_max(pos2(editor.right() + 16.0, area.top()), area.max))
+    };
     let p = ui.painter().clone();
 
     // The script.

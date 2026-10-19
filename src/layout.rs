@@ -124,13 +124,16 @@ impl Layer {
 #[serde(default)]
 pub struct Layout {
     pub background: [u8; 3],
+    /// A picture behind every layer (cropped to fill), over the color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_image: Option<String>,
     /// Bottom to top.
     pub layers: Vec<Layer>,
 }
 
 impl Default for Layout {
     fn default() -> Self {
-        Layout { background: [0, 0, 0], layers: vec![Layer::default()] }
+        Layout { background: [0, 0, 0], background_image: None, layers: vec![Layer::default()] }
     }
 }
 
@@ -176,7 +179,7 @@ impl Layout {
                 vec![cam(full, true), s]
             }
         };
-        Layout { background: [0, 0, 0], layers }
+        Layout { background: [0, 0, 0], background_image: None, layers }
     }
 
     /// The topmost visible layer under the point (fractions), if any.

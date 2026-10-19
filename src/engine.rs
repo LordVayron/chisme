@@ -132,6 +132,8 @@ pub enum Cmd {
     Replay(Option<f64>),
     /// Save the replay buffer (None: a timestamped file in the output folder).
     SaveReplay(Option<PathBuf>),
+    /// Change a camera control (zoom, exposure…; auto where supported).
+    CameraControl(crate::win::camera::Ctl, i32, bool),
     /// Mark a chapter at this moment of the recording (None: "Capítulo N").
     Marker(Option<String>),
     /// Media Board.
@@ -209,6 +211,8 @@ pub struct Status {
     pub media_image: Option<String>,
     /// Virtual background: how long the model takes per frame (ms).
     pub vbg_ms: Option<f32>,
+    /// The camera's controls and their current values.
+    pub cam_controls: Vec<crate::win::camera::Control>,
 }
 
 #[derive(Default)]
@@ -903,6 +907,11 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                         players.clear();
                         media_image = None;
                     }
+                    Cmd::CameraControl(ctl, value, auto) => {
+                        if let Some(c) = &cam {
+                            c.set(ctl, value, auto);
+                        }
+                    }
                     Cmd::Quit => quit = true,
                 }
             }
@@ -1167,6 +1176,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                 st.media = players.iter().map(|p| (p.key.clone(), p.progress(t))).collect();
                 st.media_image = media_image.clone();
                 st.vbg_ms = vbg_worker.as_ref().map(|w| w.mask.lock().unwrap().ms);
+                st.cam_controls = cam.as_ref().map(|c| c.controls.lock().unwrap().list.clone()).unwrap_or_default();
                 if let Some(r) = &rec {
                     st.rec_secs = r.stats.frames_out as f64 * period;
                     st.paused = r.pauses.is_paused();
@@ -1215,6 +1225,13 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
 fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u32), cam: Option<&Camera>, layout: &Layout, brand: &Brand, out: (u32, u32)) -> Result<()> {
     let bg = layout.background.map(|c| c as f32 / 255.0);
     pipe.overlay.clear_to(bg);
+    if let Some(path) = &layout.background_image {
+        let key = format!("img:{path}");
+        if let Some((size, srv)) = picture(gpu, pipe, &key, || load_picture(path)) {
+            let plain = PipSpec { shape: Shape::Rect, roundness: 0.0, border: 0.0, shadow: false, mirror: false, ..Default::default() };
+            pipe.overlay.draw_texture(&srv, size, [1.0, 1.0], None, &plain)?;
+        }
+    }
     let (ow, oh) = (out.0 as f64, out.1 as f64);
     for layer in layout.layers.iter().filter(|l| l.visible) {
         let rect = layer.px(ow, oh);

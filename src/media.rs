@@ -52,11 +52,13 @@ pub struct Item {
     pub kind: Kind,
     /// Linear gain, 0–2.
     pub volume: f32,
+    /// The group it is shown in ("" = ungrouped).
+    pub group: String,
 }
 
 impl Default for Item {
     fn default() -> Self {
-        Item { name: String::new(), path: String::new(), kind: Kind::Sound, volume: 1.0 }
+        Item { name: String::new(), path: String::new(), kind: Kind::Sound, volume: 1.0, group: String::new() }
     }
 }
 
@@ -73,7 +75,7 @@ pub fn kind_of(path: &Path) -> Option<Kind> {
 }
 
 pub fn item(path: &Path) -> Option<Item> {
-    Some(Item { name: path.file_stem()?.to_string_lossy().into_owned(), path: path.to_string_lossy().into_owned(), kind: kind_of(path)?, volume: 1.0 })
+    Some(Item { name: path.file_stem()?.to_string_lossy().into_owned(), path: path.to_string_lossy().into_owned(), kind: kind_of(path)?, volume: 1.0, group: String::new() })
 }
 
 pub const EXTENSIONS: [&str; 14] = ["mp3", "wav", "m4a", "aac", "wma", "flac", "mp4", "mov", "m4v", "wmv", "avi", "png", "jpg", "jpeg"];

@@ -41,6 +41,7 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
             Page::Settings => settings(app, ui, body),
         }
         toast(app, ui, full);
+        save_dialog(app, ui.ctx());
     });
 }
 
@@ -247,7 +248,7 @@ fn header(app: &mut App, ui: &mut Ui, content: Rect) -> Rect {
         p.rect_filled(pill_r, CornerRadius::same(17), fill);
     }
     p.text(pill_r.center(), Align2::CENTER_CENTER, label, semibold(13.0), fg);
-    if st.ready {
+    if st.ready && content.width() > 820.0 {
         let source = match &app.settings.window {
             Some((_, w)) => t!("Window · {}", "Ventana · {}", truncate(w, 40)),
             None => t!("Display {}", "Pantalla {}", app.settings.display),
@@ -260,32 +261,66 @@ fn header(app: &mut App, ui: &mut Ui, content: Rect) -> Rect {
 
 // ---------------------------------------------------------------- studio
 
+/// Studio: preview with its controls, live audio, the camera (or the layer
+/// editor while building a custom scene) and the Media Board. Wide windows
+/// get two columns; narrow ones stack everything and scroll.
 fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
-    let table_h = (area.height() * 0.27).clamp(170.0, 230.0);
-    let top = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - table_h - 16.0));
-    let left_w = (top.width() * 0.66).floor();
-    let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
-    let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
-    let audio_h = (right.height() * 0.40).floor();
-    let audio_card = Rect::from_min_size(right.min, vec2(right.width(), audio_h));
-    let cam_card = Rect::from_min_max(pos2(right.left(), audio_card.bottom() + 16.0), right.max);
-    let table = Rect::from_min_max(pos2(area.left(), area.bottom() - table_h), area.max);
+    let narrow = area.width() < 1100.0;
+    let media_h = 158.0;
+    ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
+        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+            let w = area.width() - 4.0;
+            if narrow {
+                let pv_h = (w * 9.0 / 16.0 + 96.0).max(330.0);
+                let side_h = 380.0;
+                let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + side_h + media_h + 32.0), Sense::hover());
+                let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
+                let y2 = preview_card.bottom() + 16.0;
+                let half = ((w - 16.0) / 2.0).floor();
+                let (audio_card, cam_card) = if w < 640.0 {
+                    (Rect::from_min_size(pos2(all.left(), y2), vec2(w, 230.0)), Rect::from_min_size(pos2(all.left(), y2 + 246.0), vec2(w, side_h - 16.0)))
+                } else {
+                    (Rect::from_min_size(pos2(all.left(), y2), vec2(half, 240.0)), Rect::from_min_size(pos2(all.left() + half + 16.0, y2), vec2(half, side_h)))
+                };
+                let media = Rect::from_min_size(pos2(all.left(), cam_card.bottom().max(audio_card.bottom()) + 16.0), vec2(w, media_h));
+                preview(app, ui, preview_card);
+                audio(app, ui, audio_card);
+                side_card(app, ui, cam_card);
+                super::media_ui::strip(app, ui, media);
+            } else {
+                let total = area.height().max(660.0);
+                let (all, _) = ui.allocate_exact_size(vec2(w, total), Sense::hover());
+                let top = Rect::from_min_max(all.min, pos2(all.right(), all.bottom() - media_h - 16.0));
+                let left_w = (top.width() * 0.64).floor();
+                let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
+                let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
+                let audio_h = (right.height() * 0.36).clamp(200.0, 260.0).floor();
+                let audio_card = Rect::from_min_size(right.min, vec2(right.width(), audio_h));
+                let cam_card = Rect::from_min_max(pos2(right.left(), audio_card.bottom() + 16.0), right.max);
+                let media = Rect::from_min_max(pos2(all.left(), all.bottom() - media_h), all.max);
+                preview(app, ui, preview_card);
+                audio(app, ui, audio_card);
+                side_card(app, ui, cam_card);
+                super::media_ui::strip(app, ui, media);
+            }
+        });
+    });
+}
 
-    preview(app, ui, preview_card);
-    audio(app, ui, audio_card);
-    if app.settings.layout.is_some() {
-        super::editor::layers_card(app, ui, cam_card);
+/// The layer editor while building a new custom scene; the camera otherwise.
+fn side_card(app: &mut App, ui: &mut Ui, card: Rect) {
+    if app.settings.layout.is_some() && app.settings.template.is_none() {
+        super::editor::layers_card(app, ui, card);
     } else {
-        camera(app, ui, cam_card);
+        camera(app, ui, card);
     }
-    recordings(app, ui, table, 2, true);
 }
 
 fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     let p = ui.painter().clone();
     theme::card(&p, card);
     let inner = card.shrink(12.0);
-    let strip_h = 84.0;
+    let strip_h = 30.0;
     let controls_h = 64.0;
     let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h));
     p.rect_filled(view, CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
@@ -376,7 +411,16 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     if flag.clicked() {
         app.marker();
     }
-    let pc = fc;
+    // Teleprompter on / off.
+    let tc = pos2(fc.x + 58.0, cy);
+    let on = app.prompter.open;
+    let tp = round_button(ui, tc, 24.0, "prompter", if on { Color32::from_rgba_premultiplied(90, 44, 0, 140) } else { Color32::from_rgba_premultiplied(36, 36, 40, 80) })
+        .on_hover_text(t!("Teleprompter ({})", "Teleprompter ({})", app.settings.hotkeys.prompter));
+    super::prompter::icon(&p, tc + vec2(2.0, 0.0), if on { ORANGE } else { TEXT });
+    if tp.clicked() {
+        app.toggle_prompter();
+    }
+    let pc = tc;
     // Timer.
     let timer = if st.recording { clock(st.rec_secs) } else { "00:00".into() };
     text(&p, pos2(inner.right() - 10.0, cy), Align2::RIGHT_CENTER, timer, display(24.0), if st.recording { TEXT } else { FAINT });
@@ -453,38 +497,116 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
         }
     }
 
-    // Stats strip, like the dashboard's number row.
+    // Stats: one quiet line.
     let strip = Rect::from_min_max(pos2(inner.left(), inner.bottom() - strip_h), inner.max);
-    p.rect_filled(strip, CornerRadius::same(20), Color32::from_rgba_premultiplied(0, 0, 0, 110));
     let s = &st.stats;
-    let mbps = st.bitrate / 1e6;
-    let items: [(String, &str, Color32); 4] = [
-        (if st.recording { clock(st.rec_secs) } else { "—".into() }, l("Duration", "Duración"), RED),
-        (format!("{}", st.fps), "FPS", ORANGE),
-        (format!("{mbps:.1}"), "Mb/s", RAINBOW[2]),
-        (format!("{}", s.drops), l("Dropped", "Perdidos"), RAINBOW[4]),
+    let items = [
+        (if st.recording { clock(st.rec_secs) } else { "—".into() }, l("duration", "duración"), RED),
+        (format!("{}", st.fps), "fps", ORANGE),
+        (format!("{:.1}", st.bitrate / 1e6), "Mb/s", RAINBOW[2]),
+        (format!("{}", s.drops), l("dropped", "perdidos"), if s.drops > 0 { RED } else { RAINBOW[4] }),
     ];
-    let w = strip.width() / 4.0;
-    for (i, (v, l, c)) in items.iter().enumerate() {
-        let x = strip.left() + w * i as f32 + 26.0;
-        let vr = text(&p, pos2(x, strip.top() + 12.0), Align2::LEFT_TOP, v, semibold(26.0), TEXT);
-        p.circle_filled(pos2(x + 5.0, strip.bottom() - 18.0), 5.0, c.gamma_multiply(0.9));
-        text(&p, pos2(x + 16.0, strip.bottom() - 18.0), Align2::LEFT_CENTER, l, body(12.0), MUTED);
-        // A thin progress line beside the value, like the dashboard's.
-        let ul = Rect::from_min_size(pos2(vr.right() + 14.0, vr.center().y), vec2((w - vr.width() - 60.0).clamp(20.0, 64.0), 2.0));
-        p.rect_filled(ul, CornerRadius::same(1), Color32::from_rgba_premultiplied(60, 60, 66, 80));
-        let fill = match i {
-            0 => (st.rec_secs / 60.0).fract() as f32,
-            1 => 1.0,
-            2 => (mbps / 50.0).min(1.0) as f32,
-            _ => (s.drops as f32 / 60.0).min(1.0),
-        };
-        p.rect_filled(Rect::from_min_size(ul.min, vec2(ul.width() * fill, 2.0)), CornerRadius::same(1), *c);
+    let mut x = strip.left() + 10.0;
+    for (v, label, c) in items {
+        p.circle_filled(pos2(x + 3.0, strip.center().y), 3.0, c);
+        let r = text(&p, pos2(x + 12.0, strip.center().y), Align2::LEFT_CENTER, v, semibold(12.5), TEXT);
+        let r2 = text(&p, pos2(r.right() + 5.0, strip.center().y), Align2::LEFT_CENTER, label, body(11.5), FAINT);
+        x = r2.right() + 22.0;
     }
 }
 
 /// A tiny drawing of a scene's layout: a 26x16 frame with the screen
 /// (outlined) and the camera (a filled head-and-shoulders block).
+/// The camera's own settings (what its driver offers: zoom, pan/tilt,
+/// exposure, image), like OBSBOT Center's basic panel.
+fn cam_controls(app: &mut App, ui: &mut Ui) {
+    use crate::win::camera::Ctl;
+    let controls = app.status.cam_controls.clone();
+    if controls.is_empty() {
+        ui.label(egui::RichText::new(l("This camera doesn't offer adjustable controls.", "Esta cámara no ofrece controles ajustables.")).color(MUTED).size(13.0));
+        return;
+    }
+    let send = |app: &App, ctl: Ctl, v: i32, auto: bool| {
+        if let Some(e) = &app.engine {
+            e.send(crate::engine::Cmd::CameraControl(ctl, v, auto));
+        }
+    };
+    let get = |ctl: Ctl| controls.iter().find(|c| c.ctl == ctl).copied();
+    // Pan / tilt pad and zoom buttons.
+    let (pan, tilt, zoom) = (get(Ctl::Pan), get(Ctl::Tilt), get(Ctl::Zoom));
+    if pan.is_some() || tilt.is_some() || zoom.is_some() {
+        ui.horizontal(|ui| {
+            if pan.is_some() || tilt.is_some() {
+                let (pad, _) = ui.allocate_exact_size(vec2(92.0, 92.0), Sense::hover());
+                ui.painter().circle_filled(pad.center(), 44.0, Color32::from_rgba_premultiplied(0, 0, 0, 90));
+                let dirs = [(Ctl::Tilt, 1, vec2(0.0, -28.0)), (Ctl::Tilt, -1, vec2(0.0, 28.0)), (Ctl::Pan, -1, vec2(-28.0, 0.0)), (Ctl::Pan, 1, vec2(28.0, 0.0))];
+                for (k, (ctl, sign, off)) in dirs.iter().enumerate() {
+                    let Some(c) = get(*ctl) else { continue };
+                    let b = Rect::from_center_size(pad.center() + *off, vec2(26.0, 26.0));
+                    let r = ui.interact(b, Id::new(("ptz", k)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+                    ui.painter().circle_filled(b.center(), 13.0, if r.hovered() { Color32::from_rgb(70, 70, 76) } else { Color32::from_rgb(44, 44, 48) });
+                    let d = off.normalized();
+                    let ctr = b.center();
+                    let perp = vec2(-d.y, d.x);
+                    ui.painter().add(EShape::convex_polygon(vec![ctr + d * 5.0, ctr - d * 3.0 + perp * 5.0, ctr - d * 3.0 - perp * 5.0], TEXT, Stroke::NONE));
+                    if r.clicked() {
+                        let step = ((c.max - c.min) / 20).max(c.step);
+                        send(app, *ctl, (c.value + sign * step).clamp(c.min, c.max), false);
+                    }
+                }
+                // Center: back to the middle.
+                let b = Rect::from_center_size(pad.center(), vec2(22.0, 22.0));
+                let r = ui.interact(b, Id::new("ptz-home"), Sense::click()).on_hover_text(l("Center", "Centrar")).on_hover_cursor(CursorIcon::PointingHand);
+                ui.painter().circle_filled(b.center(), 9.0, if r.hovered() { ORANGE } else { Color32::from_rgb(90, 90, 96) });
+                if r.clicked() {
+                    for c in [pan, tilt].into_iter().flatten() {
+                        send(app, c.ctl, c.default, false);
+                    }
+                }
+            }
+            if let Some(z) = zoom {
+                ui.vertical(|ui| {
+                    let step = ((z.max - z.min) / 10).max(z.step);
+                    if ui.add(egui::Button::new(egui::RichText::new(l("+  Zoom in", "+  Acercar")).size(13.0)).min_size(vec2(120.0, 28.0))).clicked() {
+                        send(app, Ctl::Zoom, (z.value + step).min(z.max), false);
+                    }
+                    if ui.add(egui::Button::new(egui::RichText::new(l("−  Zoom out", "−  Alejar")).size(13.0)).min_size(vec2(120.0, 28.0))).clicked() {
+                        send(app, Ctl::Zoom, (z.value - step).max(z.min), false);
+                    }
+                    let pct = (z.value - z.min) as f32 / (z.max - z.min).max(1) as f32 * 100.0;
+                    ui.label(egui::RichText::new(format!("Zoom {pct:.0}%")).color(MUTED).size(12.0));
+                });
+            }
+        });
+        ui.add_space(6.0);
+    }
+    // Every control as a slider, with Auto where the camera supports it.
+    for c in &controls {
+        ui.horizontal(|ui| {
+            ui.set_min_height(28.0);
+            ui.add_sized([96.0, 20.0], egui::Label::new(egui::RichText::new(c.ctl.label()).color(MUTED).size(12.5)));
+            let mut v = c.value;
+            ui.spacing_mut().slider_width = (ui.available_width() - 120.0).max(60.0);
+            let r = ui.add_enabled(!c.auto, egui::Slider::new(&mut v, c.min..=c.max).step_by(c.step as f64).show_value(false));
+            if r.drag_stopped() || (r.changed() && !r.dragged()) {
+                send(app, c.ctl, v, false);
+            }
+            if c.can_auto {
+                let mut auto = c.auto;
+                if ui.checkbox(&mut auto, "Auto").changed() {
+                    send(app, c.ctl, c.value, auto);
+                }
+            }
+        });
+    }
+    ui.add_space(6.0);
+    if ui.button(l("Reset all to default", "Restablecer todo")).clicked() {
+        for c in &controls {
+            send(app, c.ctl, c.default, c.can_auto && matches!(c.ctl, Ctl::Exposure | Ctl::Focus | Ctl::WhiteBalance));
+        }
+    }
+}
+
 pub(super) fn scene_icon_pub(p: &egui::Painter, s: Scene, c: Pos2, color: Color32) {
     scene_icon(p, s, c, color)
 }
@@ -713,8 +835,28 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
     let p = ui.painter().clone();
     theme::card(&p, card);
     let cam = app.status.cam.clone();
-    card_title(&p, card, l("Camera", "Cámara"), cam.as_ref().map(|c| c.0.as_str()));
+    text(&p, card.min + vec2(22.0, 20.0), Align2::LEFT_TOP, l("Camera", "Cámara"), medium(15.0), TEXT);
     let inner = Rect::from_min_max(pos2(card.left() + 22.0, card.top() + 54.0), pos2(card.right() - 22.0, card.bottom() - 16.0));
+    // Tabs: the look (overlay, background) or the camera's own controls.
+    if cam.is_some() {
+        let tabs = [l("Look", "Estilo"), l("Controls", "Controles")];
+        let mut x = card.right() - 22.0;
+        for (k, label) in tabs.iter().enumerate().rev() {
+            let w = 22.0 + label.chars().count() as f32 * 7.0;
+            let r = Rect::from_min_size(pos2(x - w, card.top() + 14.0), vec2(w, 26.0));
+            let sel = app.cam_tab == k as u8;
+            if pill(ui, r, &format!("camtab{k}"), label, if sel { Color32::from_rgba_premultiplied(70, 70, 76, 140) } else { Color32::from_rgba_premultiplied(30, 30, 34, 70) }, if sel { TEXT } else { MUTED }, medium(12.0)).clicked() {
+                app.cam_tab = k as u8;
+            }
+            x -= w + 6.0;
+        }
+        if app.cam_tab == 1 {
+            ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
+                ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| cam_controls(app, ui));
+            });
+            return;
+        }
+    }
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
         if app.settings.camera.is_none() || cam.is_none() {
             ui.add_space(6.0);
@@ -769,6 +911,7 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
                             changed = true;
                         }
                     }
+                    changed |= ui.color_edit_button_srgb(&mut pip.border_color).on_hover_text(l("Any color", "Cualquier color")).changed();
                 });
             });
         }
@@ -872,13 +1015,66 @@ fn recordings(app: &mut App, ui: &mut Ui, card: Rect, max_rows: usize, compact: 
         if pill(ui, link, "see-all", l("See all  →", "Ver todas  →"), Color32::from_rgba_premultiplied(36, 36, 40, 80), TEXT, medium(12.5)).clicked() {
             app.page = Page::Library;
         }
+    } else if !app.recordings.is_empty() {
+        // Selection: all / none, and delete what's ticked.
+        app.selected.retain(|p| p.is_file());
+        let n = app.selected.len();
+        let all = n == app.recordings.len();
+        let mut x = card.right() - 22.0;
+        if n > 0 {
+            let w = 150.0;
+            let del = Rect::from_min_size(pos2(x - w, card.top() + 14.0), vec2(w, 30.0));
+            if pill(ui, del, "delete-sel", &t!("Delete ({})", "Eliminar ({})", n), Color32::from_rgba_premultiplied(110, 20, 20, 170), Color32::WHITE, semibold(12.5)).clicked() {
+                app.confirm_delete = true;
+            }
+            x = del.left() - 8.0;
+        }
+        let w = 130.0;
+        let sel = Rect::from_min_size(pos2(x - w, card.top() + 14.0), vec2(w, 30.0));
+        if pill(ui, sel, "select-all", if all { l("Select none", "Ninguna") } else { l("Select all", "Seleccionar todo") }, Color32::from_rgba_premultiplied(36, 36, 40, 80), TEXT, medium(12.5)).clicked() {
+            if all {
+                app.selected.clear();
+            } else {
+                app.selected = app.recordings.iter().map(|r| r.path.clone()).collect();
+            }
+        }
+    }
+    if app.confirm_delete {
+        let n = app.selected.len();
+        let (mut yes, mut no) = (false, false);
+        egui::Modal::new(Id::new("confirm-delete")).show(ui.ctx(), |ui| {
+            ui.set_width(380.0);
+            ui.label(egui::RichText::new(t!("Delete {} recording(s)?", "¿Eliminar {} grabación(es)?", n)).font(display(16.0)).color(TEXT));
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new(l("They go to the Recycle Bin with their subtitles and chapters, so you can still restore them.", "Se van a la Papelera con sus subtítulos y capítulos, así que todavía puedes recuperarlas.")).color(MUTED).size(13.0));
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                if ui.add(egui::Button::new(egui::RichText::new(l("Delete", "Eliminar")).strong().color(Color32::WHITE)).fill(RED).min_size(vec2(110.0, 30.0))).clicked() {
+                    yes = true;
+                }
+                if ui.add(egui::Button::new(l("Cancel", "Cancelar")).min_size(vec2(90.0, 30.0))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    no = true;
+                }
+            });
+        });
+        if yes {
+            app.confirm_delete = false;
+            let paths: Vec<std::path::PathBuf> = app.selected.iter().cloned().collect();
+            app.delete_recordings(&paths);
+        } else if no {
+            app.confirm_delete = false;
+        }
     }
     let table = Rect::from_min_max(pos2(card.left() + 22.0, card.top() + 56.0), pos2(card.right() - 22.0, card.bottom() - 12.0));
     // Date and size columns sit left of the row's buttons (~360 px).
+    // (Hidden on narrow windows, where they'd run into the buttons.)
+    let wide = table.width() >= 860.0;
     let date_x = table.left() + (table.width() * 0.48).min(table.width() - 360.0 - 250.0).max(240.0);
     let size_x = date_x + 150.0;
     for (x, label) in [(table.left(), "Video"), (date_x, l("Recorded", "Grabado")), (size_x, l("Size", "Tamaño"))] {
-        text(&p, pos2(x, table.top()), Align2::LEFT_TOP, label, body(12.0), MUTED);
+        if wide || x == table.left() {
+            text(&p, pos2(x, table.top()), Align2::LEFT_TOP, label, body(12.0), MUTED);
+        }
     }
     p.line_segment([pos2(table.left(), table.top() + 22.0), pos2(table.right(), table.top() + 22.0)], Stroke::new(1.0, Color32::from_rgba_premultiplied(50, 50, 54, 60)));
     let list = Rect::from_min_max(pos2(table.left(), table.top() + 32.0), table.max);
@@ -896,8 +1092,29 @@ fn recordings(app: &mut App, ui: &mut Ui, card: Rect, max_rows: usize, compact: 
                 let rr = r.shrink2(vec2(0.0, 4.0));
                 let p = ui.painter();
                 p.rect_filled(rr, CornerRadius::same(18), Color32::from_rgba_premultiplied(30, 30, 33, 45));
+                // A tick box to select it (Recordings page).
+                let ox = if compact { 0.0 } else { 34.0 };
+                if !compact {
+                    let b = Rect::from_center_size(pos2(rr.left() + 20.0, rr.center().y), vec2(20.0, 20.0));
+                    let on = app.selected.contains(path);
+                    let r = ui.interact(b.expand(4.0), Id::new(("rec-sel", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+                    let p = ui.painter();
+                    p.rect_filled(b, CornerRadius::same(5), if on { ORANGE } else { Color32::from_rgba_premultiplied(0, 0, 0, 120) });
+                    p.rect_stroke(b, CornerRadius::same(5), Stroke::new(1.2, if on { ORANGE } else { Color32::from_white_alpha(70) }), StrokeKind::Inside);
+                    if on {
+                        p.add(EShape::line(vec![b.center() + vec2(-5.0, 0.0), b.center() + vec2(-1.5, 4.0), b.center() + vec2(5.0, -4.0)], Stroke::new(2.0, Color32::BLACK)));
+                    }
+                    if r.clicked() {
+                        if on {
+                            app.selected.remove(path);
+                        } else {
+                            app.selected.insert(path.clone());
+                        }
+                    }
+                }
+                let p = ui.painter();
                 // Thumbnail: Ventura's gradient with a play mark.
-                let th = Rect::from_min_size(rr.min + vec2(6.0, 6.0), vec2(72.0, rr.height() - 12.0));
+                let th = Rect::from_min_size(rr.min + vec2(6.0 + ox, 6.0), vec2(72.0, rr.height() - 12.0));
                 p.rect_filled(th, CornerRadius::same(12), Color32::from_rgb(16, 16, 18));
                 gradient_bar(p, Rect::from_min_max(pos2(th.left() + 8.0, th.bottom() - 9.0), pos2(th.right() - 8.0, th.bottom() - 6.0)), &RAINBOW);
                 let c = th.center() - vec2(0.0, 3.0);
@@ -907,10 +1124,12 @@ fn recordings(app: &mut App, ui: &mut Ui, card: Rect, max_rows: usize, compact: 
                 let chapters = crate::chapters::count(path);
                 let info = if chapters > 0 { t!("MP4 · H.264 · {} chapters", "MP4 · H.264 · {} capítulos", chapters) } else { "MP4 · H.264".into() };
                 p.text(pos2(th.right() + 16.0, rr.center().y + 10.0), Align2::LEFT_CENTER, info, body(11.5), FAINT);
-                p.circle_filled(pos2(date_x + 4.0, rr.center().y), 3.5, YELLOW);
-                p.text(pos2(date_x + 14.0, rr.center().y), Align2::LEFT_CENTER, ago(*modified), body(12.5), TEXT);
-                p.circle_filled(pos2(size_x + 4.0, rr.center().y), 3.5, GREEN);
-                p.text(pos2(size_x + 14.0, rr.center().y), Align2::LEFT_CENTER, mb(*bytes), body(12.5), TEXT);
+                if wide {
+                    p.circle_filled(pos2(date_x + 4.0, rr.center().y), 3.5, YELLOW);
+                    p.text(pos2(date_x + 14.0, rr.center().y), Align2::LEFT_CENTER, ago(*modified), body(12.5), TEXT);
+                    p.circle_filled(pos2(size_x + 4.0, rr.center().y), 3.5, GREEN);
+                    p.text(pos2(size_x + 14.0, rr.center().y), Align2::LEFT_CENTER, mb(*bytes), body(12.5), TEXT);
+                }
                 // Subtitles and vertical copy: start, show progress, or open the result.
                 let job_button = |ui: &mut Ui, app: &mut App, kind: JobKind, rect: Rect, label: &str, done: std::path::PathBuf, tip: &str| {
                     let id = format!("{kind:?}{i}");
@@ -960,15 +1179,22 @@ fn brand(p: Platform) -> Color32 {
 }
 
 fn live(app: &mut App, ui: &mut Ui, area: Rect) {
-    let cols = 3;
+    let cols = if area.width() < 760.0 { 1 } else if area.width() < 1180.0 { 2 } else { 3 };
     let gap = 16.0;
-    let w = (area.width() - gap * (cols - 1) as f32) / cols as f32;
-    let h = (area.height() - gap) / 2.0;
-    let cell = |i: usize| Rect::from_min_size(pos2(area.left() + (w + gap) * (i % cols) as f32, area.top() + (h + gap) * (i / cols) as f32), vec2(w, h));
-    for (i, p) in Platform::ALL.into_iter().enumerate() {
-        platform_card(app, ui, cell(i), p);
-    }
-    replay_card(app, ui, cell(5));
+    let rows = 6usize.div_ceil(cols);
+    ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
+        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+            let width = area.width() - 4.0;
+            let w = (width - gap * (cols - 1) as f32) / cols as f32;
+            let h = ((area.height() - gap) / 2.0).max(300.0);
+            let (all, _) = ui.allocate_exact_size(vec2(width, rows as f32 * (h + gap) - gap), Sense::hover());
+            let cell = |i: usize| Rect::from_min_size(pos2(all.left() + (w + gap) * (i % cols) as f32, all.top() + (h + gap) * (i / cols) as f32), vec2(w, h));
+            for (i, p) in Platform::ALL.into_iter().enumerate() {
+                platform_card(app, ui, cell(i), p);
+            }
+            replay_card(app, ui, cell(5));
+        });
+    });
 }
 
 fn platform_card(app: &mut App, ui: &mut Ui, card: Rect, p: Platform) {
@@ -1137,20 +1363,24 @@ fn settings(app: &mut App, ui: &mut Ui, area: Rect) {
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             let width = area.width() - 14.0;
-            let col_w = (width - 16.0) / 2.0;
             let (h1, h2, h3, h4) = (196.0, 308.0, 150.0, 340.0);
-            let (all, _) = ui.allocate_exact_size(vec2(width, h1 + h2 + h3 + h4 + 48.0), Sense::hover());
-            let (lx, rx) = (all.left(), all.left() + col_w + 16.0);
+            let one = width < 900.0;
+            let col_w = if one { width } else { (width - 16.0) / 2.0 };
+            let total = if one { 2.0 * (h1 + h2 + h3) + h4 + 112.0 } else { h1 + h2 + h3 + h4 + 48.0 };
+            let (all, _) = ui.allocate_exact_size(vec2(width, total), Sense::hover());
+            // Two columns side by side, or the right one under the left.
+            let (lx, rx, dy) = if one { (all.left(), all.left(), h1 + h2 + h3 + 48.0) } else { (all.left(), all.left() + col_w + 16.0, 0.0) };
             let y2 = all.top() + h1 + 16.0;
             let y3 = y2 + h2 + 16.0;
-            let y4 = y3 + h3 + 16.0;
+            let y4 = y3 + h3 + 16.0 + if one { dy } else { 0.0 };
+            let ry = |y: f32| y + dy;
             let w = col_w - 200.0;
             source_section(app, ui, Rect::from_min_size(pos2(lx, all.top()), vec2(col_w, h1)), w);
-            video_section(app, ui, Rect::from_min_size(pos2(rx, all.top()), vec2(col_w, h1)), w);
+            video_section(app, ui, Rect::from_min_size(pos2(rx, ry(all.top())), vec2(col_w, h1)), w);
             audio_section(app, ui, Rect::from_min_size(pos2(lx, y2), vec2(col_w, h2)), w);
-            general_section(app, ui, Rect::from_min_size(pos2(rx, y2), vec2(col_w, h2)), w);
+            general_section(app, ui, Rect::from_min_size(pos2(rx, ry(y2)), vec2(col_w, h2)), w);
             subtitles_section(app, ui, Rect::from_min_size(pos2(lx, y3), vec2(col_w, h3)));
-            brand_section(app, ui, Rect::from_min_size(pos2(rx, y3), vec2(col_w, h3)));
+            brand_section(app, ui, Rect::from_min_size(pos2(rx, ry(y3)), vec2(col_w, h3)));
             shortcuts_section(app, ui, Rect::from_min_size(pos2(lx, y4), vec2(width, h4)));
         });
     });
@@ -1477,6 +1707,54 @@ fn shortcut_row(app: &mut App, ui: &mut Ui, a: super::hotkeys::Action, width: f3
             }
         });
     });
+}
+
+/// "Save scene": a name, and optionally a group (one of the templates'
+/// groups, or a new one).
+fn save_dialog(app: &mut App, ctx: &egui::Context) {
+    let Some(d) = &mut app.save_dialog else { return };
+    let mut groups: Vec<String> = app.templates.iter().map(|t| t.group.clone()).filter(|g| !g.is_empty()).collect();
+    groups.sort();
+    groups.dedup();
+    let (mut save, mut cancel) = (false, false);
+    egui::Modal::new(Id::new("save-scene")).show(ctx, |ui| {
+        ui.set_width(380.0);
+        ui.label(egui::RichText::new(l("Save scene", "Guardar escena")).font(display(18.0)).color(TEXT));
+        ui.add_space(10.0);
+        ui.label(egui::RichText::new(l("Name", "Nombre")).color(MUTED).size(13.0));
+        let r = ui.add(egui::TextEdit::singleline(&mut d.name).hint_text(l("My scene", "Mi escena")).desired_width(f32::INFINITY));
+        r.request_focus();
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(l("Group (optional)", "Grupo (opcional)")).color(MUTED).size(13.0));
+        ui.horizontal_wrapped(|ui| {
+            if ui.selectable_label(d.group.is_empty(), l("None", "Ninguno")).clicked() {
+                d.group.clear();
+            }
+            for g in &groups {
+                if ui.selectable_label(&d.group == g, g).clicked() {
+                    d.group = g.clone();
+                }
+            }
+        });
+        ui.add(egui::TextEdit::singleline(&mut d.group).hint_text(l("…or type a new group", "…o escribe un grupo nuevo")).desired_width(f32::INFINITY));
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            let ok = !d.name.trim().is_empty();
+            if ui.add_enabled(ok, egui::Button::new(egui::RichText::new(l("Save", "Guardar")).strong().color(Color32::BLACK)).fill(Color32::WHITE).min_size(vec2(110.0, 30.0))).clicked()
+                || (ok && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+            {
+                save = true;
+            }
+            if ui.add(egui::Button::new(l("Cancel", "Cancelar")).min_size(vec2(90.0, 30.0))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                cancel = true;
+            }
+        });
+    });
+    if save && let Some(d) = app.save_dialog.take() {
+        app.save_template(&d.name, &d.group);
+    } else if cancel {
+        app.save_dialog = None;
+    }
 }
 
 fn toast(app: &mut App, ui: &mut Ui, full: Rect) {

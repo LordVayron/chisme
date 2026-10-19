@@ -22,6 +22,9 @@ pub struct Template {
     /// Images carried inside an exported file: (file name, base64 data).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assets: Vec<(String, String)>,
+    /// The group it is shown in on the Templates page ("" = ungrouped).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub group: String,
 }
 
 pub const EXT: &str = "chisme";
@@ -104,7 +107,7 @@ pub fn find(name: &str) -> Option<Template> {
 
 /// Every image file the template uses (layers and logo).
 fn images(t: &Template) -> Vec<String> {
-    let mut v: Vec<String> = t.layout.layers.iter().filter_map(|l| l.image.clone()).collect();
+    let mut v: Vec<String> = t.layout.layers.iter().filter_map(|l| l.image.clone()).chain(t.layout.background_image.clone()).collect();
     if let Some(logo) = t.brand.as_ref().and_then(|b| b.logo.clone()) {
         v.push(logo);
     }
@@ -131,6 +134,7 @@ pub fn export(t: &Template, to: &Path) -> Result<()> {
     if let Some(b) = &mut out.brand {
         b.logo = b.logo.as_deref().and_then(|p| Path::new(p).file_name()).map(|n| n.to_string_lossy().into_owned());
     }
+    out.layout.background_image = out.layout.background_image.as_deref().and_then(|p| Path::new(p).file_name()).map(|n| n.to_string_lossy().into_owned());
     std::fs::write(to, serde_json::to_string(&out)?)?;
     Ok(())
 }
@@ -179,6 +183,7 @@ pub fn import_into(from: &Path, templates: &Path, assets: &Path) -> Result<Templ
     if let Some(b) = &mut t.brand {
         b.logo = b.logo.as_deref().and_then(resolve);
     }
+    t.layout.background_image = t.layout.background_image.as_deref().and_then(resolve);
     let base = t.name.clone();
     let mut n = 2;
     while path_in(templates, &t.name).exists() {
@@ -195,7 +200,7 @@ pub fn import(from: &Path) -> Result<Template> {
 
 /// Starter templates, made from the fixed scenes (1080p, 16:9 camera).
 pub fn starters(pip: &PipSpec) -> Vec<Template> {
-    let mk = |name: &str, scene: Scene| Template { name: name.into(), layout: Layout::from_scene(scene, pip, 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0), brand: None, assets: vec![] };
+    let mk = |name: &str, scene: Scene| Template { name: name.into(), layout: Layout::from_scene(scene, pip, 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0), brand: None, assets: vec![], group: String::new() };
     // Named in the interface language when they are made.
     vec![mk(Scene::ScreenCam.label(), Scene::ScreenCam), mk(Scene::SideBySide.label(), Scene::SideBySide), mk(crate::i18n::l("Presenter", "Presentador"), Scene::CamScreen)]
 }
@@ -245,7 +250,7 @@ mod tests {
         let png = std::fs::read(&logo).unwrap();
         let mut layout = Layout::default();
         layout.layers.push(Layer::image(&logo.to_string_lossy(), 1.0, 16.0 / 9.0));
-        let t = Template { name: "Mi marca".into(), layout, brand: Some(Brand { logo: Some(logo.to_string_lossy().into()), ..Default::default() }), assets: vec![] };
+        let t = Template { name: "Mi marca".into(), layout, brand: Some(Brand { logo: Some(logo.to_string_lossy().into()), ..Default::default() }), assets: vec![], group: String::new() };
         let file = src.join("Mi marca.chisme");
         export(&t, &file).unwrap();
 
@@ -279,6 +284,7 @@ mod tests {
             layout,
             brand: Some(Brand { logo: Some(r"\\attacker\share\logo.png".into()), ..Default::default() }),
             assets: vec![("run.png".into(), b64(b"MZ not a picture")), (r"..\..\evil.exe".into(), b64(b"MZ"))],
+            group: String::new(),
         };
         let file = src.join("x.chisme");
         std::fs::write(&file, serde_json::to_string(&t).unwrap()).unwrap();
