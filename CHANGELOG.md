@@ -3,6 +3,13 @@
 All notable changes to Chisme. The format follows [Keep a Changelog](https://keepachangelog.com),
 and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.2.1] - 2026-10-18
+
+### Added
+- A "Show Chisme in recording" switch on the preview (and in Settings), to record tutorials of Chisme itself.
+- Volume and mute for each audio source, plus "Mute all", right on the Live audio card. They apply live, even mid-recording.
+- Quick access under the preview: pin and order scenes and templates from the Templates page.
+
 ## [0.2.0] - 2026-10-14
 
 ### Added
@@ -37,5 +44,6 @@ and versions follow [Semantic Versioning](https://semver.org).
   TikTok, X and RTMP, a replay buffer, Whisper subtitles, a tray icon, global hotkeys, a command
   line and the installer.
 
+[0.2.1]: https://github.com/LordVayron/chisme/releases/tag/v0.2.1
 [0.2.0]: https://github.com/LordVayron/chisme/releases/tag/v0.2.0
 [0.1.0]: https://github.com/LordVayron/chisme/releases/tag/v0.1.0
