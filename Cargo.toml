@@ -18,7 +18,7 @@ base64 = "0.23.1"
 bytes = "1.12.1"
 clap = { version = "4.6.7", features = ["derive"] }
 ctrlc = "3.5.2"
-eframe = "0.36"
+eframe = "0.37"
 global-hotkey = "0.9"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 futures-util = "0.3"
