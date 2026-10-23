@@ -183,7 +183,7 @@ src/
   win/          Windows APIs: capture, audio, camera, encoders, shaders
   app/          the interface (egui): studio, live, templates, guests, media, script, settings
 docs/
-  index.html    the website (deployed on Vercel)
+  index.html    redirects to the website
   join/         the guests' green room (GitHub Pages)
 assets/sounds/  the built-in sound effects
 ```
