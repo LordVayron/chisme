@@ -17,7 +17,6 @@ video never leaves the GPU. Everything runs on your PC: no account, no telemetry
 exception is guests, who connect through your own LiveKit Cloud project.
 
 <p align="center">
-  <a href="https://chisme-ten.vercel.app"><b>Website</b></a> ·
   <a href="https://github.com/LordVayron/chisme/releases/latest"><b>Download for Windows</b></a> ·
   <a href="docs/GUIDE.md">Technical guide</a> ·
   <a href="CHANGELOG.md">What's new</a>
@@ -183,7 +182,6 @@ src/
   win/          Windows APIs: capture, audio, camera, encoders, shaders
   app/          the interface (egui): studio, live, templates, guests, media, script, settings
 docs/
-  index.html    redirects to the website
   join/         the guests' green room (GitHub Pages)
 assets/sounds/  the built-in sound effects
 ```

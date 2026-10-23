@@ -8,9 +8,6 @@ and versions follow [Semantic Versioning](https://semver.org).
 ### Fixed
 - Garbled Spanish words in the app ("Cámara", "Capítulo") and in layer names.
 
-### Added
-- A landing page: https://chisme-ten.vercel.app
-
 ## [0.4.1] - 2026-10-19
 
 ### Changed
