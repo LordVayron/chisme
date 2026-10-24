@@ -57,6 +57,8 @@ impl App {
 
     /// Start editing: the current scene as layers.
     pub fn customize_layout(&mut self) {
+        // A template becomes the starting point of the custom layout.
+        self.settings.template = None;
         if self.settings.layout.is_none() {
             let (w, h) = (self.status.out_size.0.max(16) as f64, self.status.out_size.1.max(9) as f64);
             let cam_aspect = self.status.cam.as_ref().map_or(16.0 / 9.0, |c| c.1.0 as f64 / c.1.1.max(1) as f64);

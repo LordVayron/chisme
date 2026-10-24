@@ -896,6 +896,12 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
             return;
         }
         let mut pip = app.settings.pip();
+        // With a template on, the camera is its camera layer: show and edit that.
+        let cam_layer = app.settings.layout.as_ref().and_then(|l| l.layers.iter().find(|x| x.source == crate::layout::Source::Camera)).cloned();
+        if let Some(c) = &cam_layer {
+            pip = PipSpec { shape: c.shape, roundness: c.roundness, border: c.border, border_color: c.border_color, shadow: c.shadow, mirror: c.mirror, size: c.rect[2].clamp(0.1, 0.5), ..pip };
+        }
+        let before = pip.clone();
         let mut changed = false;
         // Shapes.
         ui.horizontal(|ui| {
@@ -957,6 +963,21 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
         });
         if changed {
             app.settings.set_pip(&pip);
+            if cam_layer.is_some() {
+                let (w, h) = (app.status.out_size.0.max(16) as f64, app.status.out_size.1.max(9) as f64);
+                let aspect = cam.as_ref().map_or(16.0 / 9.0, |c| c.1.0 as f64 / c.1.1.max(1) as f64);
+                let moved = pip.size != before.size || pip.place != before.place;
+                if let Some(layout) = app.settings.layout.as_mut() {
+                    for l in layout.layers.iter_mut().filter(|l| l.source == crate::layout::Source::Camera) {
+                        (l.shape, l.roundness, l.border, l.border_color, l.shadow, l.mirror) = (pip.shape, pip.roundness, pip.border, pip.border_color, pip.shadow, pip.mirror);
+                        // A full-frame camera keeps its box; an overlay moves and resizes.
+                        if moved && l.rect[2] < 0.95 {
+                            let [x, y, rw, rh] = overlay_rect(&pip, w, h, aspect);
+                            l.rect = [x / w, y / h, rw / w, rh / h];
+                        }
+                    }
+                }
+            }
             app.settings_changed();
         }
         if vbg_row(ui, &mut app.settings.vbg, 190.0) {
