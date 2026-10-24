@@ -5,9 +5,6 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-### Added
-- A Media volume slider and mute in Live audio, next to System and Microphone. It sets how loud Media Board sounds and clips are in the recording and the streams.
-
 ### Changed
 - Updated eframe to 0.37, global-hotkey to 0.9 and tract-onnx to 0.23.9.
 
