@@ -261,8 +261,9 @@ pub fn subtitle_file(video: &Path, model: Model, language: Option<&str>, stage: 
     }
     let audio = to_16k(&audio, rate);
     let s3 = stage.clone();
-    stage("Transcribiendo", 0.0);
-    let segments = transcribe(&audio, &model_path, language, move |p| s3("Transcribiendo", p as f32 / 100.0))?;
+    let label = crate::i18n::l("Transcribing", "Transcribiendo");
+    stage(label, 0.0);
+    let segments = transcribe(&audio, &model_path, language, move |p| s3(label, p as f32 / 100.0))?;
     let out = srt_path(video);
     // UTF-8 with BOM: some Windows players need it for accents.
     std::fs::write(&out, format!("\u{feff}{}", to_srt(&segments)))?;

@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- The command line shows "Transcribing" in English, and `chisme marker` names the right chapters file.
+
 ### Changed
 - Updated eframe to 0.37, global-hotkey to 0.9 and tract-onnx to 0.23.9.
 
