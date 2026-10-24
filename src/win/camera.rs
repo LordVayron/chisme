@@ -264,7 +264,13 @@ impl Camera {
                     let mut c = controls2.lock().unwrap();
                     for (ctl, value, auto) in std::mem::take(&mut c.pending) {
                         knobs.set(ctl, value, auto);
-                        if let (Some(now), Some(slot)) = (knobs.read(ctl), c.list.iter_mut().find(|x| x.ctl == ctl)) {
+                        if let (Some(mut now), Some(slot)) = (knobs.read(ctl), c.list.iter_mut().find(|x| x.ctl == ctl)) {
+                            // Motors take seconds to arrive, and some cameras
+                            // (OBSBOT) report pan with the opposite sign, so a
+                            // read-back would send the next step the wrong way.
+                            if !auto && matches!(ctl, Ctl::Pan | Ctl::Tilt | Ctl::Zoom) {
+                                now.value = value;
+                            }
                             *slot = now;
                         }
                     }

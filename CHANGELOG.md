@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Camera pan, tilt and zoom buttons keep moving the same way on each click. Before, a slow motor or a camera that reports pan reversed (OBSBOT) made the next click go back or stall.
+
 ### Changed
 - Updated eframe to 0.37, global-hotkey to 0.9 and tract-onnx to 0.23.9.
 
