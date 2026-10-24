@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- With a template on, the camera's shape, size, border, shadow, mirror and corner change the template's camera. Before, they did nothing.
+- The Custom button works with a template on: the template becomes the starting point of your own layout.
+
 ### Changed
 - Updated eframe to 0.37, global-hotkey to 0.9 and tract-onnx to 0.23.9.
 
