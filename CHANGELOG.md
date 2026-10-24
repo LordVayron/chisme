@@ -5,11 +5,21 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-### Fixed
-- Subtitles read the whole audio track. Some videos (AAC at 22 kHz) lost most of their audio and came out empty or wrong.
+## [0.4.3] - 2026-10-24
+
+### Added
+- A Media volume slider and mute in Live audio, next to System and Microphone. It sets how loud Media Board sounds and clips are in the recording and the streams.
 
 ### Changed
+- A much better virtual background. Edges follow your hair and shoulders, the old background no longer shows around you, the blur is smooth (no blocks) and has no halo, a picture background blends with your edges like a real room, and stray patches the model mistakes for you (a lamp, a piece of wall) are dropped.
 - Updated eframe to 0.37, global-hotkey to 0.9 and tract-onnx to 0.23.9.
+
+### Fixed
+- Camera zoom, pan and tilt: each click keeps going the same way and the sliders follow it. Before, a slow motor or a camera that reports pan reversed (OBSBOT) made the next click go back or stall.
+- With a template on, the camera's shape, size, border, shadow, mirror and corner change the template's camera. Before, they did nothing.
+- The Custom button works with a template on: the template becomes the starting point of your own layout.
+- Subtitles read the whole audio track. Some videos (AAC at 22 kHz) lost most of their audio and came out empty or wrong.
+- The command line shows "Transcribing" in English, and `chisme marker` names the right chapters file.
 
 ## [0.4.2] - 2026-10-19
 
@@ -103,7 +113,8 @@ and versions follow [Semantic Versioning](https://semver.org).
   TikTok, X and RTMP, a replay buffer, Whisper subtitles, a tray icon, global hotkeys, a command
   line and the installer.
 
-[Unreleased]: https://github.com/LordVayron/chisme/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/LordVayron/chisme/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/LordVayron/chisme/releases/tag/v0.4.3
 [0.4.2]: https://github.com/LordVayron/chisme/releases/tag/v0.4.2
 [0.4.1]: https://github.com/LordVayron/chisme/releases/tag/v0.4.1
 [0.4.0]: https://github.com/LordVayron/chisme/releases/tag/v0.4.0
