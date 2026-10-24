@@ -946,16 +946,13 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
             // Volume and mute apply live, even mid-recording. Gains shape the
             // mix; the separate stems keep their level but follow mute.
             let silence = |g: [f32; 2]| [0, 1].map(|i| if live.muted[i] { -200.0 } else { g[i] });
-            let media = |mix: bool| if live.media_muted { -200.0 } else if mix { live.media_gain_db } else { 0.0 };
             if let Some(r) = &mut rec {
                 for (t, m) in tracks.iter().zip(r.mixers.iter_mut()) {
                     m.set_gain(silence(if t.mix { live.gain_db } else { [0.0; 2] }));
-                    m.set_media_gain(media(t.mix));
                 }
             }
             if let Some(m) = &mut live_mix {
                 m.set_gain(silence(live.gain_db));
-                m.set_media_gain(media(true));
             }
             if lives.is_empty() {
                 live_mix = None;
@@ -993,9 +990,18 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
             }
 
             // Media Board: due audio into the mix and the speakers, due
-            // pictures onto their textures.
+            // pictures onto their textures. The Media volume is applied here,
+            // so what you hear is what goes out (with system audio on, media
+            // reaches the recording through the speakers).
+            let media_gain = if live.media_muted { 0.0 } else { 10f32.powf(live.media_gain_db / 20.0) };
             for p in players.iter_mut() {
-                let failed = p.pump(&gpu, t, |pts, frames| {
+                let failed = p.pump(&gpu, t, |pts, mut frames| {
+                    if media_gain != 1.0 {
+                        for f in frames.iter_mut() {
+                            f[0] *= media_gain;
+                            f[1] *= media_gain;
+                        }
+                    }
                     if inject {
                         if let Some(r) = &mut rec {
                             for m in r.mixers.iter_mut().filter(|m| m.takes(AudioKind::Media)) {

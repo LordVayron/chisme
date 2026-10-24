@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- The Media volume also sets what you hear. With system audio on, Media Board sounds reach the recording through your speakers, so the slider did nothing there; now it changes the sound itself, and what you hear is what goes out.
+
 ## [0.4.3] - 2026-10-24
 
 ### Added
