@@ -7,6 +7,10 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    ignore:
+      # egui/eframe 0.37 puts the pointer off target on Windows.
+      - dependency-name: eframe
+        versions: [">=0.37"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

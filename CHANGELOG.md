@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Clicks land where the pointer is again. The interface library update in 0.4.3 (eframe 0.37) put the pointer off target, so buttons only reacted a little away from them; it's back to the 0.4.2 version.
+
 ## [0.4.3] - 2026-10-24
 
 ### Added
