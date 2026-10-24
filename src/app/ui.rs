@@ -723,14 +723,21 @@ fn audio(app: &mut App, ui: &mut Ui, card: Rect) {
     let st = app.status.clone();
     card_title(&p, card, l("Live audio", "Audio en vivo"), None);
     // Mute / unmute everything.
-    let sources: Vec<usize> = [st.has_system.then_some(0), st.has_mic.then_some(1)].into_iter().flatten().collect();
-    if !sources.is_empty() {
-        let all_muted = sources.iter().all(|&i| if i == 0 { app.settings.system_muted } else { app.settings.mic_muted });
+    // System, mic, and the Media Board (sounds and clips you play).
+    let sources: Vec<usize> = [st.has_system.then_some(0), st.has_mic.then_some(1), Some(2)].into_iter().flatten().collect();
+    let is_muted = |s: &crate::settings::Settings, i: usize| match i {
+        0 => s.system_muted,
+        1 => s.mic_muted,
+        _ => s.media_muted,
+    };
+    {
+        let all_muted = sources.iter().all(|&i| is_muted(&app.settings, i));
         let b = Rect::from_min_size(pos2(card.right() - 22.0 - 104.0, card.top() + 14.0), vec2(104.0, 28.0));
         let label = if all_muted { l("Unmute all", "Activar todo") } else { l("Mute all", "Silenciar todo") };
         if pill(ui, b, "mute-all", label, if all_muted { Color32::from_rgba_premultiplied(80, 20, 20, 120) } else { Color32::from_rgba_premultiplied(40, 40, 44, 90) }, if all_muted { RED } else { TEXT }, medium(12.0)).clicked() {
             app.settings.system_muted = !all_muted;
             app.settings.mic_muted = !all_muted;
+            app.settings.media_muted = !all_muted;
             app.settings_changed();
         }
     }
@@ -767,24 +774,28 @@ fn audio(app: &mut App, ui: &mut Ui, card: Rect) {
             p.circle_filled(last, 4.0, YELLOW);
         }
     }
-    if sources.is_empty() {
+    if !st.has_system && !st.has_mic {
         text(&p, chart.center(), Align2::CENTER_CENTER, l("No audio — turn it on in Settings", "Sin audio — actívalo en Ajustes"), body(12.5), MUTED);
-        return;
     }
     // One row per source: name, live level, volume, mute.
     let mut y = card.bottom() - controls_h - 4.0;
     for &i in &sources {
-        let (name, color, level) = if i == 0 {
-            (l("System", "Sistema"), YELLOW, app.levels.back().map_or(-90.0, |l| l.0))
-        } else {
-            (l("Microphone", "Micrófono"), TEXT, app.levels.back().map_or(-90.0, |l| l.1))
+        let (name, color, level) = match i {
+            0 => (l("System", "Sistema"), YELLOW, Some(app.levels.back().map_or(-90.0, |l| l.0))),
+            1 => (l("Microphone", "Micrófono"), TEXT, Some(app.levels.back().map_or(-90.0, |l| l.1))),
+            _ => (l("Media", "Media"), ORANGE, None),
         };
-        let muted = if i == 0 { app.settings.system_muted } else { app.settings.mic_muted };
+        let muted = is_muted(&app.settings, i);
         let row = Rect::from_min_size(pos2(card.left() + 18.0, y), vec2(card.width() - 36.0, 30.0));
         p.rect_filled(row, CornerRadius::same(10), Color32::from_rgba_premultiplied(0, 0, 0, 70));
         p.circle_filled(pos2(row.left() + 12.0, row.center().y), 4.0, if muted { FAINT } else { color });
         text(&p, pos2(row.left() + 22.0, row.center().y), Align2::LEFT_CENTER, name, medium(12.0), if muted { FAINT } else { TEXT });
-        let val = if muted { l("muted", "silenciado").to_string() } else if level <= -60.0 { "-∞".into() } else { format!("{level:.0} dB") };
+        let val = match level {
+            _ if muted => l("muted", "silenciado").to_string(),
+            None => String::new(),
+            Some(db) if db <= -60.0 => "-∞".into(),
+            Some(db) => format!("{db:.0} dB"),
+        };
         text(&p, pos2(row.left() + 108.0, row.center().y), Align2::LEFT_CENTER, val, body(11.0), if muted { RED } else { MUTED });
         // Mute button.
         let mb = Rect::from_center_size(pos2(row.right() - 16.0, row.center().y), vec2(26.0, 24.0));
@@ -794,17 +805,21 @@ fn audio(app: &mut App, ui: &mut Ui, card: Rect) {
         }
         speaker(&p, mb.center() - vec2(2.0, 0.0), if muted { FAINT } else { TEXT }, muted);
         if mr.clicked() {
-            if i == 0 {
-                app.settings.system_muted = !muted;
-            } else {
-                app.settings.mic_muted = !muted;
+            match i {
+                0 => app.settings.system_muted = !muted,
+                1 => app.settings.mic_muted = !muted,
+                _ => app.settings.media_muted = !muted,
             }
             app.settings_changed();
         }
         // Volume (dB, applied live to the mix).
         let sl = Rect::from_min_max(pos2(row.left() + 160.0, row.top()), pos2(mb.left() - 8.0, row.bottom()));
         if sl.width() > 60.0 {
-            let gain = if i == 0 { &mut app.settings.system_gain_db } else { &mut app.settings.mic_gain_db };
+            let gain = match i {
+                0 => &mut app.settings.system_gain_db,
+                1 => &mut app.settings.mic_gain_db,
+                _ => &mut app.settings.media_gain_db,
+            };
             let mut changed = false;
             ui.scope_builder(UiBuilder::new().max_rect(sl), |ui| {
                 ui.spacing_mut().slider_width = (sl.width() - 58.0).max(40.0);

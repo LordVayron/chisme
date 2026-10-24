@@ -42,6 +42,9 @@ pub struct Settings {
     /// Muted sources: system audio, microphone.
     pub system_muted: bool,
     pub mic_muted: bool,
+    /// Media Board volume in the mix (dB) and mute.
+    pub media_gain_db: f32,
+    pub media_muted: bool,
     /// Show Chisme's own windows in recordings (normally hidden).
     pub show_self: bool,
     /// Quick-access scenes and templates under the preview, in order.
@@ -193,6 +196,8 @@ impl Default for Settings {
             mic_gain_db: 0.0,
             system_muted: false,
             mic_muted: false,
+            media_gain_db: 0.0,
+            media_muted: false,
             show_self: false,
             pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),
             camera: None,
@@ -294,7 +299,7 @@ impl Settings {
     }
 
     pub fn live(&self) -> LiveState {
-        LiveState { scene: self.scene, pip: self.pip(), gain_db: [self.system_gain_db, self.mic_gain_db], muted: [self.system_muted, self.mic_muted], layout: self.layout.clone(), brand: self.brand.clone(), vbg: self.vbg.clone() }
+        LiveState { scene: self.scene, pip: self.pip(), gain_db: [self.system_gain_db, self.mic_gain_db], muted: [self.system_muted, self.mic_muted], media_gain_db: self.media_gain_db, media_muted: self.media_muted, layout: self.layout.clone(), brand: self.brand.clone(), vbg: self.vbg.clone() }
     }
 
     pub fn stream_url(&self, p: Platform) -> String {
