@@ -3,6 +3,11 @@
 All notable changes to Chisme. The format follows [Keep a Changelog](https://keepachangelog.com),
 and versions follow [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+- Updated eframe to 0.37, global-hotkey to 0.9 and tract-onnx to 0.23.9.
+
 ## [0.4.2] - 2026-10-19
 
 ### Fixed
@@ -88,15 +93,18 @@ and versions follow [Semantic Versioning](https://semver.org).
 - Whisper models are checked against a pinned SHA-256 after downloading.
 - Frames from cameras and video files are copied with bounds checks.
 
-## [0.1.0] - 2026-10-13
+## 0.1.0 - 2026-10-13 (not released)
 
 ### Added
 - First release. Screen, window, audio and webcam recording, live streaming to YouTube, Twitch,
   TikTok, X and RTMP, a replay buffer, Whisper subtitles, a tray icon, global hotkeys, a command
   line and the installer.
 
+[Unreleased]: https://github.com/LordVayron/chisme/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/LordVayron/chisme/releases/tag/v0.4.2
+[0.4.1]: https://github.com/LordVayron/chisme/releases/tag/v0.4.1
+[0.4.0]: https://github.com/LordVayron/chisme/releases/tag/v0.4.0
 [0.3.1]: https://github.com/LordVayron/chisme/releases/tag/v0.3.1
 [0.3.0]: https://github.com/LordVayron/chisme/releases/tag/v0.3.0
 [0.2.1]: https://github.com/LordVayron/chisme/releases/tag/v0.2.1
 [0.2.0]: https://github.com/LordVayron/chisme/releases/tag/v0.2.0
-[0.1.0]: https://github.com/LordVayron/chisme/releases/tag/v0.1.0
