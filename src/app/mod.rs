@@ -738,7 +738,9 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        let hide = !self.settings.show_self && std::env::var_os("CHISME_SHOW_IN_CAPTURE").is_none();
+        // Hidden from capture only while recording or streaming: on some PCs
+        // the hidden window is drawn offset from where clicks land.
+        let hide = !self.settings.show_self && self.busy() && std::env::var_os("CHISME_SHOW_IN_CAPTURE").is_none();
         if self.excluded != Some(hide) {
             self.excluded = Some(hide);
             exclude_from_capture(frame, hide);
