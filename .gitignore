@@ -3,3 +3,18 @@
 *.part
 
 .env*
+
+# Local, editor and backup files
+*.bak
+*.orig
+*.tmp
+*.log
+*.pdb
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# App settings and captures from local testing
+settings.json
+/captures/
