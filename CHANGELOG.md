@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Subtitles read the whole audio track. Some videos (AAC at 22 kHz) lost most of their audio and came out empty or wrong.
+
 ### Changed
 - Updated eframe to 0.37, global-hotkey to 0.9 and tract-onnx to 0.23.9.
 

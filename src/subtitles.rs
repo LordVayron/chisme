@@ -126,7 +126,16 @@ pub fn decode_audio(path: &Path) -> Result<(Vec<f32>, u32)> {
         let t = MFCreateMediaType()?;
         t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)?;
         t.SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_Float)?;
-        reader.SetCurrentMediaType(AUDIO, None, &t).context("this file has no audio track")?;
+        // A fixed rate and layout make the reader resample. Without them some
+        // decoders (AAC at 22.05 kHz) switch format mid-stream and audio is lost.
+        t.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, 48000)?;
+        t.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, 2)?;
+        if reader.SetCurrentMediaType(AUDIO, None, &t).is_err() {
+            let t = MFCreateMediaType()?;
+            t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)?;
+            t.SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_Float)?;
+            reader.SetCurrentMediaType(AUDIO, None, &t).context("this file has no audio track")?;
+        }
         let cur = reader.GetCurrentMediaType(AUDIO)?;
         let rate = cur.GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND)?;
         let ch = cur.GetUINT32(&MF_MT_AUDIO_NUM_CHANNELS)?.max(1) as usize;
