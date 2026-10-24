@@ -37,7 +37,78 @@ impl Segmenter {
     pub fn run_input(&self, input: Vec<f32>) -> Result<Vec<f32>> {
         let t: Tensor = tract_ndarray::Array4::from_shape_vec((1, 3, SIZE, SIZE), input)?.into();
         let out = self.plan.run(tvec!(t.into()))?;
-        Ok(out[0].to_plain_array_view::<f32>()?.iter().copied().collect())
+        let mut mask: Vec<f32> = out[0].to_plain_array_view::<f32>()?.iter().copied().collect();
+        keep_main(&mut mask);
+        Ok(mask)
+    }
+}
+
+/// Drop islands the model mistakes for a person (a lamp's glow, a patch of
+/// wall): keep the regions at least a fifth the size of the largest one.
+pub fn keep_main(mask: &mut [f32]) {
+    if mask.len() != SIZE * SIZE {
+        return;
+    }
+    let mut label = vec![0u32; SIZE * SIZE];
+    let mut sizes = vec![0usize];
+    let mut stack = Vec::new();
+    for start in 0..SIZE * SIZE {
+        if label[start] != 0 || mask[start] < 0.5 {
+            continue;
+        }
+        let id = sizes.len() as u32;
+        let mut n = 0;
+        label[start] = id;
+        stack.push(start);
+        while let Some(i) = stack.pop() {
+            n += 1;
+            let (x, y) = (i % SIZE, i / SIZE);
+            let mut visit = |j: usize| {
+                if label[j] == 0 && mask[j] >= 0.5 {
+                    label[j] = id;
+                    stack.push(j);
+                }
+            };
+            if x > 0 {
+                visit(i - 1);
+            }
+            if x + 1 < SIZE {
+                visit(i + 1);
+            }
+            if y > 0 {
+                visit(i - SIZE);
+            }
+            if y + 1 < SIZE {
+                visit(i + SIZE);
+            }
+        }
+        sizes.push(n);
+    }
+    let largest = sizes.iter().copied().max().unwrap_or(0);
+    if largest == 0 {
+        return;
+    }
+    let keep: Vec<bool> = sizes.iter().map(|&n| n * 5 >= largest).collect();
+    // Weak pixels (< 0.5) next to a dropped island fade with it.
+    let mut drop = vec![false; SIZE * SIZE];
+    for i in 0..SIZE * SIZE {
+        if label[i] != 0 && !keep[label[i] as usize] {
+            drop[i] = true;
+        }
+    }
+    for (i, m) in mask.iter_mut().enumerate() {
+        if drop[i] {
+            *m = 0.0;
+        } else if *m < 0.5 {
+            let (x, y) = (i % SIZE, i / SIZE);
+            let near = |dx: i32, dy: i32| {
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                nx >= 0 && ny >= 0 && (nx as usize) < SIZE && (ny as usize) < SIZE && drop[ny as usize * SIZE + nx as usize]
+            };
+            if near(-2, 0) || near(2, 0) || near(0, -2) || near(0, 2) {
+                *m = 0.0;
+            }
+        }
     }
 }
 
@@ -115,6 +186,24 @@ pub fn smooth(prev: &mut [f32], new: &[f32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn small_islands_are_dropped() {
+        let mut m = vec![0f32; SIZE * SIZE];
+        for y in 100..200 {
+            for x in 80..180 {
+                m[y * SIZE + x] = 1.0; // the person
+            }
+        }
+        for y in 10..20 {
+            for x in 10..20 {
+                m[y * SIZE + x] = 0.9; // a lamp
+            }
+        }
+        keep_main(&mut m);
+        assert_eq!(m[15 * SIZE + 15], 0.0);
+        assert_eq!(m[150 * SIZE + 130], 1.0);
+    }
 
     /// A frame with a bright figure on a dark background: the model runs and
     /// gives a 256x256 mask in 0..1.

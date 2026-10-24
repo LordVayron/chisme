@@ -6,6 +6,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Changed
+- A much better virtual background. Edges follow your hair and shoulders, the old background no longer shows around you, the blur is smooth (no blocks) and has no halo, a picture background blends with your edges like a real room, and stray patches the model mistakes for you (a lamp, a piece of wall) are dropped.
+
+### Changed
 - Updated eframe to 0.37, global-hotkey to 0.9 and tract-onnx to 0.23.9.
 
 ## [0.4.2] - 2026-10-19
