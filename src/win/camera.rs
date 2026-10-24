@@ -134,6 +134,8 @@ pub struct Controls {
 struct Knobs {
     cam: Option<windows::Win32::Media::DirectShow::IAMCameraControl>,
     amp: Option<windows::Win32::Media::DirectShow::IAMVideoProcAmp>,
+    /// OBSBOT cameras report pan with the opposite sign of what they accept.
+    flip_pan: bool,
 }
 
 impl Knobs {
@@ -150,6 +152,9 @@ impl Knobs {
                 a.GetRange(prop, &mut min, &mut max, &mut step, &mut def, &mut caps).ok()?;
                 a.Get(prop, &mut val, &mut flags).ok()?;
             }
+        }
+        if self.flip_pan && ctl == Ctl::Pan {
+            val = -val;
         }
         (max > min).then_some(Control { ctl, min, max, step: step.max(1), default: def, value: val, auto: flags & 1 != 0, can_auto: caps & 1 != 0 })
     }
@@ -244,10 +249,11 @@ impl Camera {
                     Ok((cam_name, size, fps, tex, reader, source))
                 }
             })();
-            let (size, tex, reader, source) = match opened {
+            let (size, tex, reader, source, name_lc) = match opened {
                 Ok((n, size, fps, tex, reader, source)) => {
+                    let name_lc = n.to_lowercase();
                     let _ = ready_tx.send(Ok((n, size, fps, SendBox(tex.clone()))));
-                    (size, tex, reader, source)
+                    (size, tex, reader, source, name_lc)
                 }
                 Err(e) => {
                     let _ = ready_tx.send(Err(e));
@@ -255,7 +261,7 @@ impl Camera {
                 }
             };
             // The driver's camera controls (UVC), through the media source.
-            let knobs = Knobs { cam: source.cast().ok(), amp: source.cast().ok() };
+            let knobs = Knobs { cam: source.cast().ok(), amp: source.cast().ok(), flip_pan: name_lc.contains("obsbot") };
             controls2.lock().unwrap().list = Ctl::ALL.iter().filter_map(|c| knobs.read(*c)).collect();
             let row = size.0 as usize * 4;
             let mut pixels = vec![0u8; row * size.1 as usize];
