@@ -245,6 +245,11 @@ impl Mixer {
         self.gain[1] = 10f32.powf(gain_db[1] / 20.0);
     }
 
+    /// Change the Media Board gain (dB) while running.
+    pub fn set_media_gain(&mut self, gain_db: f32) {
+        self.gain[2] = 10f32.powf(gain_db / 20.0);
+    }
+
     /// Whether this track gets Media Board audio.
     pub fn with_media(mut self, on: bool) -> Self {
         self.media = on;
@@ -530,6 +535,19 @@ mod tests {
         assert_eq!(out[0], [0.75, 0.75], "…but is summed in");
         assert!(Mixer::new(0.0, true, true, [0.0; 2]).takes(AudioKind::Media));
         assert!(!Mixer::new(0.0, true, true, [0.0; 2]).with_media(false).takes(AudioKind::Media));
+    }
+
+    #[test]
+    fn media_volume_and_mute() {
+        let run = |db: f32| {
+            let mut m = Mixer::new(0.0, false, true, [0.0, 0.0]);
+            m.set_media_gain(db);
+            m.push(AudioKind::Media, 0.0, RATE, vec![[0.4, 0.4]; 480]);
+            m.push(AudioKind::Mic, 0.0, RATE, vec![[0.0, 0.0]; 480]);
+            pull_all(&mut m, false).1[0][0]
+        };
+        assert!((run(-6.0) - 0.4 * 10f32.powf(-6.0 / 20.0)).abs() < 1e-4, "-6 dB");
+        assert!(run(-200.0).abs() < 1e-6, "muted");
     }
 
     #[test]
