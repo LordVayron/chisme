@@ -43,7 +43,7 @@ enum Cmd_ {
     Resume,
     /// Save the running replay buffer (`record --replay`) to an MP4.
     SaveReplay,
-    /// Mark a chapter in the running recording (saved as <video>.capitulos.txt).
+    /// Mark a chapter in the running recording (saved as <video>.chapters.txt).
     Marker,
     /// Export a recording as a vertical 1080x1920 clip (TikTok, Reels, Shorts).
     Vertical { file: PathBuf },
