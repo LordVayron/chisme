@@ -213,6 +213,8 @@ pub struct LiveOut {
     pub id: u64,
     pub platform: Option<Platform>,
     pub name: String,
+    /// Takes the 9:16 picture.
+    pub vertical: bool,
     enc: H264Encoder,
     aac: AacEncoder,
     blit: Blitter,
@@ -235,6 +237,7 @@ impl LiveOut {
             id,
             platform,
             name,
+            vertical: preset.vertical,
             aac: AacEncoder::new(preset.audio_kbps)?,
             blit: Blitter::new(gpu, canvas, size, live_fps, true)?,
             src,

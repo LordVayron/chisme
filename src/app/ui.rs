@@ -293,34 +293,53 @@ fn header(app: &mut App, ui: &mut Ui, content: Rect) -> Rect {
 /// editor while building a custom scene) and the Media Board. Wide windows
 /// get two columns; narrow ones stack everything and scroll.
 fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
+    let narrow = area.width() < 1100.0;
     let media_h = 158.0;
+    let audio_fold = app.settings.fold_audio;
+    let cam_fold = app.settings.fold_camera;
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             let w = area.width() - 4.0;
-            // Preview on top: the video at 16:9 plus the control row and stats,
-            // capped so the cards below stay in view.
-            let rows_h = 24.0 + 64.0 + 30.0;
-            let pv_h = ((w - 24.0) * 9.0 / 16.0 + rows_h).min((area.height() * 0.62).max(420.0)).max(330.0).floor();
-            // Live audio and Camera side by side (stacked when narrow), each
-            // only as tall as it needs when folded.
-            let audio_h = if app.settings.fold_audio { FOLDED_H } else { 250.0 };
-            let cam_h = if app.settings.fold_camera { FOLDED_H } else { 400.0 };
-            let side_by_side = w >= 760.0;
-            let cards_h = if side_by_side { audio_h.max(cam_h) } else { audio_h + 16.0 + cam_h };
-            let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + 16.0 + cards_h + 16.0 + media_h), Sense::hover());
-            let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
-            let y2 = preview_card.bottom() + 16.0;
-            let (audio_card, cam_card) = if side_by_side {
+            if narrow {
+                let pv_h = (w * 9.0 / 16.0 + 96.0).max(330.0);
+                let audio_h = if audio_fold { FOLDED_H } else { 240.0 };
+                let side_h = if cam_fold { FOLDED_H } else { 380.0 };
                 let half = ((w - 16.0) / 2.0).floor();
-                (Rect::from_min_size(pos2(all.left(), y2), vec2(half, audio_h)), Rect::from_min_size(pos2(all.left() + half + 16.0, y2), vec2(w - half - 16.0, cam_h)))
+                let stacked = w < 640.0;
+                let cards_h = if stacked { audio_h + 16.0 + side_h } else { audio_h.max(side_h) };
+                let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + cards_h + media_h + 32.0), Sense::hover());
+                let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
+                let y2 = preview_card.bottom() + 16.0;
+                let (audio_card, cam_card) = if stacked {
+                    (Rect::from_min_size(pos2(all.left(), y2), vec2(w, audio_h)), Rect::from_min_size(pos2(all.left(), y2 + audio_h + 16.0), vec2(w, side_h)))
+                } else {
+                    (Rect::from_min_size(pos2(all.left(), y2), vec2(half, audio_h)), Rect::from_min_size(pos2(all.left() + half + 16.0, y2), vec2(half, side_h)))
+                };
+                let media = Rect::from_min_size(pos2(all.left(), y2 + cards_h + 16.0), vec2(w, media_h));
+                preview(app, ui, preview_card);
+                audio(app, ui, audio_card);
+                side_card(app, ui, cam_card);
+                super::media_ui::strip(app, ui, media);
             } else {
-                (Rect::from_min_size(pos2(all.left(), y2), vec2(w, audio_h)), Rect::from_min_size(pos2(all.left(), y2 + audio_h + 16.0), vec2(w, cam_h)))
-            };
-            let media = Rect::from_min_size(pos2(all.left(), y2 + cards_h + 16.0), vec2(w, media_h));
-            preview(app, ui, preview_card);
-            audio(app, ui, audio_card);
-            side_card(app, ui, cam_card);
-            super::media_ui::strip(app, ui, media);
+                let total = area.height().max(660.0);
+                let (all, _) = ui.allocate_exact_size(vec2(w, total), Sense::hover());
+                let top = Rect::from_min_max(all.min, pos2(all.right(), all.bottom() - media_h - 16.0));
+                // The 9:16 preview, when on, widens the preview card by its own
+                // column; the 16:9 picture keeps its size.
+                let vcol = if app.settings.vertical_preview && app.settings.horizontal_preview { ((top.height() - 24.0 - 64.0 - 30.0) * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
+                let left_w = ((w * 0.64).floor() + vcol).min(w - 16.0 - 380.0);
+                let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
+                let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
+                let audio_h = if audio_fold { FOLDED_H } else { (right.height() * 0.36).clamp(200.0, 260.0).floor() };
+                let audio_card = Rect::from_min_size(right.min, vec2(right.width(), audio_h));
+                let cam_top = audio_card.bottom() + 16.0;
+                let cam_card = if cam_fold { Rect::from_min_size(pos2(right.left(), cam_top), vec2(right.width(), FOLDED_H)) } else { Rect::from_min_max(pos2(right.left(), cam_top), right.max) };
+                let media = Rect::from_min_max(pos2(all.left(), all.bottom() - media_h), all.max);
+                preview(app, ui, preview_card);
+                audio(app, ui, audio_card);
+                side_card(app, ui, cam_card);
+                super::media_ui::strip(app, ui, media);
+            }
         });
     });
 }
@@ -343,7 +362,14 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     // One row under the preview: record controls on the left, scenes on the
     // right, Custom alone in the corner.
     let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h));
-    p.rect_filled(view, CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
+    // Each preview on its own dark panel, with a gap between them.
+    if app.settings.vertical_preview && app.settings.horizontal_preview && app.status.error.is_none() {
+        let vcol = (view.height() * 9.0 / 16.0).floor() + 16.0;
+        p.rect_filled(Rect::from_min_max(view.min, pos2(view.right() - vcol, view.bottom())), CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
+        p.rect_filled(Rect::from_min_max(pos2(view.right() - vcol + 16.0, view.top()), view.max), CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
+    } else {
+        p.rect_filled(view, CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
+    }
 
     let st = app.status.clone();
     if let Some(err) = &st.error {
@@ -355,15 +381,91 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             app.restart(cfg);
         }
     } else if let Some(tex) = &app.preview {
-        let size = tex.size_vec2();
-        let (x, y, w, h) = fit((size.x as u32, size.y as u32), (view.width() as u32, view.height() as u32));
-        let img = Rect::from_min_size(view.min + vec2(x as f32, y as f32), vec2(w as f32, h as f32));
-        egui::Image::from_texture(tex).corner_radius(CornerRadius::same(14)).paint_at(ui, img);
-        if app.settings.layout.is_some() {
-            super::editor::layout_edit(app, ui, img);
-        } else {
-            overlay_drag(app, ui, img);
+        // The 16:9 and 9:16 previews: either or both (never neither). With
+        // both on, the 9:16 one takes a column on the right.
+        let show_v = app.settings.vertical_preview;
+        let show_h = app.settings.horizontal_preview || !show_v;
+        let vcol = if show_v && show_h { (view.height() * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
+        let custom = app.settings.layout.is_some() && app.settings.template.is_none();
+        let mut anchor = view;
+        let mut himg = None;
+        if show_h {
+            let hview = Rect::from_min_max(view.min, pos2(view.right() - vcol, view.bottom()));
+            let size = tex.size_vec2();
+            let (x, y, w, h) = fit((size.x as u32, size.y as u32), (hview.width() as u32, hview.height() as u32));
+            let img = Rect::from_min_size(hview.min + vec2(x as f32, y as f32), vec2(w as f32, h as f32));
+            egui::Image::from_texture(tex).corner_radius(CornerRadius::same(14)).paint_at(ui, img);
+            if app.settings.layout.is_some() {
+                super::editor::layout_edit(app, ui, img, false);
+            } else {
+                overlay_drag(app, ui, img);
+            }
+            anchor = img;
+            himg = Some(img);
         }
+        let mut vimg_r = None;
+        if show_v {
+            let col = if show_h { Rect::from_min_max(pos2(view.right() - vcol + 16.0, view.top()), view.max) } else { view };
+            let vsize = vec2(col.width(), col.width() * 16.0 / 9.0).min(vec2(col.height() * 9.0 / 16.0, col.height()));
+            let vimg = Rect::from_center_size(col.center(), vsize);
+            match app.preview_v.as_ref().map(|t| t.id()) {
+                Some(id) => {
+                    egui::Image::from_texture((id, vimg.size())).corner_radius(CornerRadius::same(14)).paint_at(ui, vimg);
+                    if custom {
+                        super::editor::layout_edit(app, ui, vimg, true);
+                    }
+                }
+                None => {
+                    p.rect_filled(vimg, CornerRadius::same(14), Color32::from_rgb(14, 14, 16));
+                    text(&p, vimg.center(), Align2::CENTER_CENTER, l("Starting…", "Iniciando…"), medium(12.0), MUTED);
+                }
+            }
+            if show_h {
+                let chip = Rect::from_min_size(vimg.min + vec2(10.0, 10.0), vec2(46.0, 24.0));
+                p.rect_filled(chip, CornerRadius::same(12), Color32::from_rgba_premultiplied(0, 0, 0, 150));
+                text(&p, chip.center(), Align2::CENTER_CENTER, "9:16", semibold(11.0), TEXT);
+            } else {
+                anchor = vimg;
+            }
+            if custom && app.settings.layout_v.is_some() {
+                let reset = Rect::from_min_size(pos2(vimg.left() + 10.0, vimg.bottom() - 72.0), vec2(vimg.width() - 20.0, 24.0));
+                if pill(ui, reset, "reset-v", l("Back to automatic", "Volver a automático"), Color32::from_rgba_premultiplied(0, 0, 0, 160), TEXT, semibold(11.0))
+                    .on_hover_text(l("Make the 9:16 layout from the 16:9 one again", "Rehacer el layout 9:16 a partir del 16:9"))
+                    .clicked()
+                {
+                    app.settings.layout_v = None;
+                    app.sel_layer = None;
+                    app.settings_changed();
+                }
+            }
+            vimg_r = Some(vimg);
+        }
+        // Show / hide buttons: "9:16" on the 16:9 picture, "16:9" on the
+        // 9:16 one (the 16:9 one can only hide while the 9:16 one shows).
+        let mut toggle_chip = |ui: &mut Ui, at: Rect, id: &str, label: &str, on: bool, vertical_icon: bool, tip: &str| -> bool {
+            let chip = Rect::from_min_size(pos2(at.right() - 12.0 - 72.0, at.bottom() - 12.0 - 26.0), vec2(72.0, 26.0));
+            let r = ui.interact(chip, Id::new(id), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tip);
+            p.rect_filled(chip, CornerRadius::same(13), if r.hovered() { Color32::from_rgba_premultiplied(30, 30, 34, 190) } else { Color32::from_rgba_premultiplied(0, 0, 0, 150) });
+            let ic = Rect::from_center_size(chip.left_center() + vec2(16.0, 0.0), if vertical_icon { vec2(8.0, 14.0) } else { vec2(15.0, 9.0) });
+            let col = if on { ORANGE } else { TEXT };
+            p.rect_stroke(ic, CornerRadius::same(2), Stroke::new(1.5, col), StrokeKind::Inside);
+            text(&p, chip.left_center() + vec2(28.0, 0.0), Align2::LEFT_CENTER, label, semibold(11.0), col);
+            r.clicked()
+        };
+        if let Some(img) = himg
+            && toggle_chip(ui, img, "toggle-v", "9:16", show_v, true, if show_v { l("Hide the vertical (9:16) preview", "Ocultar la vista vertical (9:16)") } else { l("Show the vertical (9:16) preview", "Mostrar la vista vertical (9:16)") })
+        {
+            app.settings.vertical_preview = !show_v;
+            app.settings.horizontal_preview = true;
+            app.settings_changed();
+        }
+        if let Some(vimg) = vimg_r
+            && toggle_chip(ui, vimg, "toggle-h", "16:9", show_h, false, if show_h { l("Hide the horizontal (16:9) preview", "Ocultar la vista horizontal (16:9)") } else { l("Show the horizontal (16:9) preview", "Mostrar la vista horizontal (16:9)") })
+        {
+            app.settings.horizontal_preview = !show_h;
+            app.settings_changed();
+        }
+        let img = anchor;
         // Show Chisme in recordings (top right).
         {
             let label = l("Show Chisme in recording", "Mostrar Chisme en la grabación");
@@ -460,14 +562,50 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             .collect();
         let n = pins.len() as f32;
         let custom_box = Rect::from_min_size(pos2(inner.right() - 6.0 - 92.0, cy - 25.0), vec2(92.0, 50.0));
+        // What Record writes, next to the teleprompter.
+        let out_w = 150.0;
+        let out_r = Rect::from_min_size(pos2(pc.x + 24.0 + 16.0, cy - 15.0), vec2(out_w, 30.0));
+        {
+            use crate::engine::Output;
+            let label = |o: Output| match o {
+                Output::Horizontal => l("Record 16:9", "Grabar 16:9"),
+                Output::Vertical => l("Record 9:16", "Grabar 9:16"),
+                Output::Both => l("Record both", "Grabar ambos"),
+            };
+            let cur = app.settings.output;
+            let mut pick = None;
+            ui.scope_builder(UiBuilder::new().max_rect(out_r), |ui| {
+                ui.add_enabled_ui(!st.recording, |ui| {
+                    ComboBox::from_id_salt("output-pick")
+                        .width(out_w - 4.0)
+                        .selected_text(egui::RichText::new(label(cur)).size(13.0))
+                        .show_ui(ui, |ui| {
+                            for o in [Output::Horizontal, Output::Vertical, Output::Both] {
+                                if ui.selectable_label(o == cur, label(o)).clicked() {
+                                    pick = Some(o);
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text(l("Horizontal (16:9), vertical (9:16) or both at once (two files)", "Horizontal (16:9), vertical (9:16) o ambos a la vez (dos archivos)"));
+                });
+            });
+            if let Some(o) = pick {
+                app.settings.output = o;
+                if o.vertical() {
+                    app.settings.vertical_preview = true;
+                }
+                app.settings_changed();
+            }
+        }
         // The studio picker sits just left of its scenes.
         let combo_w = 170.0;
-        let left_edge = pc.x + 24.0 + 20.0 + combo_w + 10.0;
+        let left_edge = out_r.right() + 10.0 + combo_w + 10.0;
         let w = (92.0 * n).min(custom_box.left() - 10.0 - left_edge).max(0.0);
         let seg = Rect::from_min_size(pos2(custom_box.left() - 10.0 - w, cy - 25.0), vec2(w, 50.0));
         let show_pins = seg.width() > 60.0;
         let combo = Rect::from_min_size(pos2(if show_pins { seg.left() } else { custom_box.left() } - 10.0 - combo_w, cy - 15.0), vec2(combo_w, 30.0));
-        if combo.left() > pc.x + 34.0 {
+        if combo.left() > out_r.right() + 6.0 {
             let names: Vec<String> = app.settings.studios.iter().map(|s| s.name.clone()).collect();
             let cur = app.settings.studio;
             let mut pick = None;
@@ -548,6 +686,7 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                         Some(Pin::Scene(s)) => {
                             app.settings.scene = *s;
                             app.settings.layout = None;
+                            app.settings.layout_v = None;
                             app.settings.template = None;
                             app.sel_layer = None;
                             app.settings_changed();
@@ -1353,7 +1492,10 @@ fn platform_card(app: &mut App, ui: &mut Ui, card: Rect, p: Platform) {
             let key = app.key_mut(p);
             ui.add(egui::TextEdit::singleline(key).password(true).hint_text(l("Stream key", "Clave de transmisión")).desired_width(inner.width()));
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Vertical 9:16").color(MUTED).size(13.0));
+                ui.label(egui::RichText::new("Vertical 9:16").color(MUTED).size(13.0)).on_hover_text(l(
+                    "Sends your vertical (9:16) layout, the one in the Studio's 9:16 preview",
+                    "Envía tu layout vertical (9:16), el de la vista 9:16 del Estudio",
+                ));
                 let mut v = vertical;
                 if toggle(ui, &mut v).changed() {
                     app.settings.vertical.retain(|q| *q != p);

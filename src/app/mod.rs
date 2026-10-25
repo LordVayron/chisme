@@ -111,6 +111,9 @@ pub struct App {
     pub page: Page,
     pub preview: Option<egui::TextureHandle>,
     pub preview_seq: u64,
+    /// The 9:16 preview.
+    pub preview_v: Option<egui::TextureHandle>,
+    pub preview_v_seq: u64,
     /// Level history (dBFS) for the audio chart: (system, mic).
     pub levels: VecDeque<(f32, f32)>,
     last_level: Instant,
@@ -148,6 +151,8 @@ pub struct App {
     /// Layout editor: the selected layer, a drag in progress and the snap
     /// guides to draw (x, y as fractions).
     pub sel_layer: Option<usize>,
+    /// The selection and drag are on the 9:16 layout.
+    pub edit_v: bool,
     pub drag: Option<editor::Drag>,
     pub guides: (Option<f64>, Option<f64>),
     pub save_dialog: Option<SaveDialog>,
@@ -214,6 +219,8 @@ impl App {
             },
             preview: None,
             preview_seq: 0,
+            preview_v: None,
+            preview_v_seq: 0,
             levels: VecDeque::from(vec![(-90.0, -90.0); HISTORY]),
             last_level: Instant::now(),
             recordings: vec![],
@@ -239,6 +246,7 @@ impl App {
             replay_vertical: false,
             last_replay: None,
             sel_layer: None,
+            edit_v: false,
             drag: None,
             guides: (None, None),
             save_dialog: None,
@@ -406,6 +414,7 @@ impl App {
     /// Switch to a template's layout (and brand, if it has one), live.
     pub fn apply_template(&mut self, t: &crate::templates::Template) {
         self.settings.layout = Some(t.layout.clone());
+        self.settings.layout_v = t.vertical.clone();
         if let Some(b) = &t.brand {
             self.settings.brand = b.clone();
         }
@@ -421,7 +430,7 @@ impl App {
             self.customize_layout();
         }
         let Some(layout) = self.settings.layout.clone() else { return };
-        let t = crate::templates::Template { name: name.trim().to_string(), layout, brand: Some(self.settings.brand.clone()), assets: vec![], group: group.trim().to_string() };
+        let t = crate::templates::Template { name: name.trim().to_string(), layout, brand: Some(self.settings.brand.clone()), assets: vec![], group: group.trim().to_string(), vertical: self.settings.layout_v.clone() };
         match crate::templates::save(&t) {
             Ok(_) => {
                 self.settings.template = Some(t.name.clone());
@@ -587,6 +596,16 @@ impl App {
                 match &mut self.preview {
                     Some(t) => t.set(img, egui::TextureOptions::LINEAR),
                     None => self.preview = Some(ctx.load_texture("preview", img, egui::TextureOptions::LINEAR)),
+                }
+            }
+            drop(p);
+            let p = e.shared.preview_v.lock().unwrap();
+            if p.seq != self.preview_v_seq && p.size.0 > 0 {
+                self.preview_v_seq = p.seq;
+                let img = egui::ColorImage::from_rgba_unmultiplied([p.size.0 as usize, p.size.1 as usize], &p.rgba);
+                match &mut self.preview_v {
+                    Some(t) => t.set(img, egui::TextureOptions::LINEAR),
+                    None => self.preview_v = Some(ctx.load_texture("preview-v", img, egui::TextureOptions::LINEAR)),
                 }
             }
         }

@@ -176,6 +176,9 @@ struct RecordArgs {
     /// (repeatable). Keys come from $CHISME_STREAM_KEY or `chisme stream-key`.
     #[arg(long, value_name = "DEST")]
     stream: Vec<String>,
+    /// What to record: horizontal (16:9), vertical (9:16) or both (two files).
+    #[arg(long, default_value = "horizontal")]
+    aspect: String,
     /// Crop streams to vertical 9:16 (TikTok always is).
     #[arg(long)]
     vertical: bool,
@@ -285,7 +288,15 @@ fn record(a: RecordArgs) -> Result<()> {
     if let Some(p) = &a.bg_image {
         vbg.pick(p.to_string_lossy().into_owned());
     }
-    let live = LiveState { scene: a.scene.unwrap_or_default(), pip, gain_db: [a.system_gain, a.mic_gain], muted: [false; 2], media_gain_db: 0.0, media_muted: false, layout, brand, vbg };
+    let aspect = match a.aspect.to_lowercase().as_str() {
+        "horizontal" | "h" => chisme::engine::Output::Horizontal,
+        "vertical" | "v" => chisme::engine::Output::Vertical,
+        "both" => chisme::engine::Output::Both,
+        o => bail!("--aspect: {o:?} isn't horizontal, vertical or both"),
+    };
+    let scene = a.scene.unwrap_or_default();
+    let vertical = layout.clone().unwrap_or_else(|| chisme::layout::Layout::from_scene(scene, &pip, 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0)).to_vertical();
+    let live = LiveState { scene, pip, gain_db: [a.system_gain, a.mic_gain], muted: [false; 2], media_gain_db: 0.0, media_muted: false, layout, brand, vbg, vertical, vertical_preview: false, output: aspect };
     let engine = Engine::start(cfg, live);
     engine.shared.preview_on.store(false, std::sync::atomic::Ordering::Relaxed);
 
