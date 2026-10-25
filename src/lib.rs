@@ -6,6 +6,7 @@
 pub mod app;
 pub mod brand;
 pub mod chapters;
+pub mod chat;
 pub mod compose;
 pub mod engine;
 pub mod export;

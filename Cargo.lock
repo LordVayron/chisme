@@ -907,6 +907,7 @@ dependencies = [
  "tokio",
  "tract-onnx",
  "tray-icon",
+ "tungstenite",
  "ureq",
  "whisper-rs",
  "windows",

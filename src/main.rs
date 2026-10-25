@@ -296,7 +296,7 @@ fn record(a: RecordArgs) -> Result<()> {
     };
     let scene = a.scene.unwrap_or_default();
     let vertical = layout.clone().unwrap_or_else(|| chisme::layout::Layout::from_scene(scene, &pip, 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0)).to_vertical();
-    let live = LiveState { scene, pip, gain_db: [a.system_gain, a.mic_gain], muted: [false; 2], media_gain_db: 0.0, media_muted: false, layout, brand, vbg, vertical, vertical_preview: false, output: aspect, transition: Default::default(), switch: 0 };
+    let live = LiveState { scene, pip, gain_db: [a.system_gain, a.mic_gain], muted: [false; 2], media_gain_db: 0.0, media_muted: false, layout, brand, vbg, vertical, vertical_preview: false, output: aspect, transition: Default::default(), switch: 0, chat_pin: None };
     let engine = Engine::start(cfg, live);
     engine.shared.preview_on.store(false, std::sync::atomic::Ordering::Relaxed);
 

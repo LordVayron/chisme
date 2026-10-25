@@ -50,6 +50,7 @@ pub struct Settings {
     /// Studio page: Live audio and Camera cards folded to their title.
     pub fold_audio: bool,
     pub fold_camera: bool,
+    pub fold_chat: bool,
     /// Quick-access scenes and templates under the preview, in order.
     pub pinned: Vec<Pin>,
     /// Studios: named sets of scenes. The active one's scenes are `pinned`
@@ -83,6 +84,11 @@ pub struct Settings {
     /// Bumped on every scene change (not saved).
     #[serde(skip)]
     pub switch: u64,
+    /// Chat channels (the YouTube API key lives in Credential Manager).
+    pub chat: crate::chat::Config,
+    /// The chat comment on screen (not saved).
+    #[serde(skip)]
+    pub chat_pin: Option<(String, String)>,
     /// Logo, colors and font.
     pub brand: Brand,
     /// The template last applied (highlighted in the app).
@@ -230,6 +236,7 @@ impl Default for Settings {
             show_self: false,
             fold_audio: false,
             fold_camera: false,
+            fold_chat: false,
             pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),
             studios: vec![],
             studio: 0,
@@ -250,6 +257,8 @@ impl Default for Settings {
             output: crate::engine::Output::Horizontal,
             transition: Default::default(),
             switch: 0,
+            chat: Default::default(),
+            chat_pin: None,
             brand: Brand::default(),
             template: None,
             stream_urls: vec![],
@@ -410,6 +419,7 @@ impl Settings {
             output: self.output,
             transition: self.transition,
             switch: self.switch,
+            chat_pin: self.chat_pin.clone(),
         }
     }
 
