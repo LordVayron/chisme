@@ -97,13 +97,35 @@ impl Drop for Worker {
 fn run(seg: Segmenter, rx: Receiver<Vec<f32>>, out: Arc<Mutex<Mask>>, stop: Arc<AtomicBool>) {
     let mut acc = vec![0f32; SIZE * SIZE];
     let mut first = true;
+    // MODNet beside it, at its own pace: where the person can be. It ends
+    // when this thread drops its sender.
+    let allow: Arc<Mutex<Option<Vec<f32>>>> = Arc::default();
+    let (mtx, mrx) = sync_channel::<Vec<f32>>(1);
+    {
+        let allow = allow.clone();
+        let _ = std::thread::Builder::new().name("modnet".into()).spawn(move || {
+            let Ok(path) = crate::segment::ensure_modnet() else { return };
+            let Ok(net) = crate::segment::ModNet::new(&path) else { return };
+            while let Ok(input) = mrx.recv() {
+                if let Ok(a) = net.run(&input) {
+                    *allow.lock().unwrap() = Some(crate::segment::allow_mask(&a, 8));
+                }
+            }
+        });
+    }
     // Ends when the camera side drops the sender.
     while let Ok(input) = rx.recv() {
         if stop.load(Ordering::Relaxed) {
             break;
         }
         let t = std::time::Instant::now();
-        let Ok(m) = seg.run_input(input) else { continue };
+        let _ = mtx.try_send(input.clone());
+        let Ok(mut m) = seg.run_input(input) else { continue };
+        if let Some(a) = allow.lock().unwrap().as_ref() {
+            for (v, k) in m.iter_mut().zip(a) {
+                *v *= k;
+            }
+        }
         if first {
             acc.copy_from_slice(&m);
             first = false;
