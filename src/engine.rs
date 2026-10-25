@@ -148,6 +148,8 @@ pub struct LiveState {
     pub switch: u64,
     /// A chat comment shown on screen: (author, text).
     pub chat_pin: Option<(String, String)>,
+    /// Media Board files that start again when they end.
+    pub media_loop: Vec<String>,
 }
 
 pub enum Cmd {
@@ -372,6 +374,7 @@ const MEDIA_AHEAD: f64 = 0.25;
 /// A Media Board sound or clip playing.
 struct Player {
     key: String,
+    item: crate::media::Item,
     volume: f32,
     /// Keeps the decoders running.
     _dec: Decoder,
@@ -395,7 +398,7 @@ impl Player {
         let video = (item.kind == MediaKind::Video).then_some(out);
         let mut dec = Decoder::open(&item.path, video);
         let streams = std::mem::take(&mut dec.streams).into_iter().map(|rx| (rx, None, false)).collect();
-        Player { key: item.path.clone(), volume: item.volume, _dec: dec, streams, start: None, created: crate::win::now(), frames: VecDeque::new(), tex: None, end: 0.0, duration: 0.0 }
+        Player { key: item.path.clone(), item: item.clone(), volume: item.volume, _dec: dec, streams, start: None, created: crate::win::now(), frames: VecDeque::new(), tex: None, end: 0.0, duration: 0.0 }
     }
 
     fn progress(&self, t: f64) -> f32 {
@@ -1094,7 +1097,19 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     notify(format!("Media Board: {e}"));
                 }
             }
-            players.retain(|p| !p.done(t));
+            // Looping clips and sounds start again (the setting is read live,
+            // so turning loop on or off applies to what is playing).
+            let mut again = vec![];
+            players.retain(|p| {
+                let done = p.done(t);
+                if done && live.media_loop.contains(&p.key) {
+                    again.push(p.item.clone());
+                }
+                !done
+            });
+            for it in again {
+                players.push(Player::new(&it, out));
+            }
 
             // Guests on stage: into the mix and the speakers, like media.
             let room = crate::guests::shared().lock().unwrap().clone();

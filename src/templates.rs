@@ -238,10 +238,34 @@ pub fn guest_scenes() -> Vec<Template> {
     ]
 }
 
-/// Add the guest scenes if they aren't there yet.
+/// Holding screens for a stream: "Be right back" and "Starting soon", big
+/// centered text over a dark background (play a looping clip from the
+/// Media Board behind it if you like).
+pub fn stream_scenes() -> Vec<Template> {
+    use crate::i18n::l;
+    use crate::layout::Layer;
+    let mk = |name: &str, title: &str, sub: &str| {
+        let mut text = Layer::lower_third(title, sub, 4);
+        text.rect = [0.12, 0.36, 0.76, 0.26];
+        Template {
+            name: name.into(),
+            layout: Layout { layers: vec![text], background: [12, 12, 16], background_image: None },
+            brand: None,
+            assets: vec![],
+            group: l("Stream", "Stream").into(),
+            vertical: None,
+        }
+    };
+    vec![
+        mk(l("Be right back", "Ya volvemos"), l("Be right back", "Ya volvemos"), l("The stream continues in a moment", "La transmisión sigue en un momento")),
+        mk(l("Starting soon", "Empezamos pronto"), l("Starting soon", "Empezamos pronto"), l("Grab a snack, we're about to begin", "Prepárate, ya casi empezamos")),
+    ]
+}
+
+/// Add the guest scenes and stream screens if they aren't there yet.
 pub fn ensure_guest_scenes() {
     let have = list();
-    for t in guest_scenes() {
+    for t in guest_scenes().into_iter().chain(stream_scenes()) {
         if !have.iter().any(|h| h.name == t.name) {
             let _ = save(&t);
         }

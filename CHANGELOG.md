@@ -6,6 +6,8 @@ and versions follow [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
+- Loop for Media Board clips and sounds: the ↻ button on a tile makes it start again when it ends, until you stop it (it applies to what's already playing too).
+- "Be right back" and "Starting soon" screens, in the Gaming / Stream studio and on the Templates page. Play a looping clip from the Media Board behind them if you like.
 - Live chat: a Chat card on the Studio page shows Twitch, Kick and YouTube messages in one list (set the channels with its gear; YouTube uses your own free API key, kept in Windows Credential Manager). Click a message to show it on screen as a branded lower third, in the recording and the streams; click again to remove it.
 
 ## [0.5.0] - 2026-10-25
