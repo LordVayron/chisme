@@ -107,9 +107,12 @@ fn run(seg: Segmenter, rx: Receiver<Vec<f32>>, out: Arc<Mutex<Mask>>, stop: Arc<
             let Ok(path) = crate::segment::ensure_modnet() else { return };
             let Ok(net) = crate::segment::ModNet::new(&path) else { return };
             while let Ok(input) = mrx.recv() {
+                let t = std::time::Instant::now();
                 if let Ok(a) = net.run(&input) {
                     *allow.lock().unwrap() = Some(crate::segment::allow_mask(&a, 8));
                 }
+                // About 4 times a second is enough, and spares the CPU.
+                std::thread::sleep(std::time::Duration::from_millis(250).saturating_sub(t.elapsed()));
             }
         });
     }
