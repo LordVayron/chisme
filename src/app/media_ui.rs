@@ -57,6 +57,7 @@ impl App {
     fn media_remove(&mut self, i: usize) {
         if i < self.settings.media.len() {
             let it = self.settings.media.remove(i);
+            self.settings.media_strip.retain(|p| *p != it.path);
             if let Some(e) = &self.engine {
                 e.send(Cmd::Media(MediaCmd::Stop(it.path.clone())));
             }
@@ -229,6 +230,25 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                 if resp.clicked() {
                     fire = Some(i);
                 }
+                {
+                    let pr = Rect::from_min_size(pos2(art.right() - 40.0, art.top() + 8.0), vec2(32.0, 32.0));
+                    let pinned = app.settings.media_strip.contains(&it.path);
+                    let presp = ui.interact(pr, Id::new(("media-pin", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if pinned {
+                        l("On the Studio page. Click to take it off.", "En la página Estudio. Clic para quitarlo.")
+                    } else {
+                        l("Pin to the Studio page", "Fijar en la página Estudio")
+                    });
+                    p.circle_filled(pr.center(), 16.0, if pinned { Color32::from_rgba_premultiplied(90, 44, 0, 200) } else if presp.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 200) } else { Color32::from_rgba_premultiplied(0, 0, 0, 170) });
+                    super::templates_ui::pin_icon(&p, pr.center(), if pinned { ORANGE } else { TEXT }, pinned);
+                    if presp.clicked() {
+                        if pinned {
+                            app.settings.media_strip.retain(|x| *x != it.path);
+                        } else {
+                            app.settings.media_strip.push(it.path.clone());
+                        }
+                        save = true;
+                    }
+                }
                 resp.context_menu(|ui| {
                     if let Some(g) = super::groups::menu(ui, &it.group, &all_groups, &mut app.group_input) {
                         move_to = Some((i, g));
@@ -314,7 +334,25 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
     }
 }
 
-/// The Studio's Media Board: one row of small tiles, grouped like the page.
+/// Sound pad colors (the Studio's sampler).
+pub const PAD_COLORS: [Color32; 8] = [
+    Color32::from_rgb(255, 122, 26),
+    Color32::from_rgb(239, 68, 68),
+    Color32::from_rgb(236, 72, 153),
+    Color32::from_rgb(168, 85, 247),
+    Color32::from_rgb(59, 130, 246),
+    Color32::from_rgb(6, 182, 212),
+    Color32::from_rgb(34, 197, 94),
+    Color32::from_rgb(234, 179, 8),
+];
+
+fn pad_color(it: &Item, place: usize) -> Color32 {
+    PAD_COLORS[it.color.map(|c| c as usize).unwrap_or(place) % PAD_COLORS.len()]
+}
+
+/// The Studio's Media Board: the pinned items in your order. Sounds are
+/// colored pads; clips and images show their art. "Edit" reorders them
+/// (drag) and picks pad colors.
 pub fn strip(app: &mut App, ui: &mut Ui, card: Rect) {
     let p = ui.painter().clone();
     theme::card(&p, card);
@@ -322,68 +360,185 @@ pub fn strip(app: &mut App, ui: &mut Ui, card: Rect) {
     let see = Rect::from_min_size(pos2(card.right() - 22.0 - 140.0, card.top() + 11.0), vec2(140.0, 28.0));
     if pill(ui, see, "media-strip-all", l("Open Media Board", "Abrir Media Board"), false) {
         app.page = super::Page::Media;
+        app.strip_edit = false;
+    }
+    let items = app.settings.media.clone();
+    // Pinned, in order (items deleted meanwhile are skipped).
+    let pins: Vec<usize> = app.settings.media_strip.iter().filter_map(|path| items.iter().position(|it| it.path == *path)).collect();
+    if !pins.is_empty() {
+        let edit = Rect::from_min_size(pos2(see.left() - 10.0 - 76.0, see.top()), vec2(76.0, 28.0));
+        if pill(ui, edit, "media-strip-edit", if app.strip_edit { l("Done", "Listo") } else { l("Edit", "Editar") }, app.strip_edit) {
+            app.strip_edit = !app.strip_edit;
+            app.strip_drag = None;
+        }
+        if app.strip_edit {
+            p.text(pos2(edit.left() - 12.0, edit.center().y), Align2::RIGHT_CENTER, l("Drag to reorder · pick a color for each sound", "Arrastra para ordenar · elige un color para cada sonido"), body(11.5), FAINT);
+        }
     }
     let row = Rect::from_min_max(pos2(card.left() + 16.0, card.top() + 48.0), pos2(card.right() - 16.0, card.bottom() - 12.0));
-    let items = app.settings.media.clone();
-    if items.is_empty() {
-        p.text(row.center(), Align2::CENTER_CENTER, l("Add sounds, clips and images on the Media Board page", "Agrega sonidos, clips e imágenes en la página Media Board"), body(12.5), MUTED);
+    if pins.is_empty() {
+        let msg = if items.is_empty() {
+            l("Add sounds, clips and images on the Media Board page", "Agrega sonidos, clips e imágenes en la página Media Board")
+        } else {
+            l("Pin sounds and clips on the Media Board page (the pin on each tile) to have them here", "Fija sonidos y clips en la página Media Board (el pin de cada tarjeta) para tenerlos aquí")
+        };
+        p.text(row.center(), Align2::CENTER_CENTER, msg, body(12.5), MUTED);
         return;
     }
     let ctx = ui.ctx().clone();
     let now = ctx.input(|i| i.time) as f32;
-    let (tw, th) = ((row.height() * 1.25).min(150.0), row.height());
-    // Grouped order: ungrouped first, then each group in turn.
-    let groups: Vec<&str> = items.iter().map(|i| i.group.as_str()).collect();
-    let mut order: Vec<usize> = vec![];
-    for g in super::groups::order(&groups) {
-        order.extend((0..items.len()).filter(|&i| items[i].group == g));
-    }
+    let th = row.height();
+    let tw_clip = (th * 1.25).min(150.0);
+    let gap = 10.0;
+    // Each tile's width: sounds are square pads.
+    let widths: Vec<f32> = pins.iter().map(|&i| if items[i].kind == Kind::Sound { th } else { tw_clip }).collect();
+    let total: f32 = widths.iter().sum::<f32>() + gap * widths.len() as f32;
+    let editing = app.strip_edit;
     let mut fire = None;
+    let mut set_color = None;
+    let mut unpin = None;
+    let mut moved: Option<(usize, usize)> = None;
     ui.scope_builder(UiBuilder::new().max_rect(row), |ui| {
         egui::ScrollArea::horizontal().auto_shrink([false; 2]).show(ui, |ui| {
-            let (all, _) = ui.allocate_exact_size(vec2(order.len() as f32 * (tw + 10.0), th), Sense::hover());
-            let mut last_group: Option<&str> = None;
-            for (k, &i) in order.iter().enumerate() {
+            let (all, _) = ui.allocate_exact_size(vec2(total, th), Sense::hover());
+            let mut x = all.left();
+            let mut lefts = vec![];
+            for (k, &i) in pins.iter().enumerate() {
                 let it = &items[i];
-                let r = Rect::from_min_size(pos2(all.left() + k as f32 * (tw + 10.0), all.top()), vec2(tw, th));
-                let playing = app.status.media.iter().any(|m| m.0 == it.path);
+                let r = Rect::from_min_size(pos2(x, all.top()), vec2(widths[k], th));
+                lefts.push(x);
+                x += widths[k] + gap;
+                let prog = app.status.media.iter().find(|m| m.0 == it.path).map(|m| m.1);
+                let playing = prog.is_some();
                 let shown = it.kind == Kind::Image && app.status.media_image.as_deref() == Some(it.path.as_str());
+                let dragging = editing && app.strip_drag == Some(k);
                 let p = ui.painter().clone();
-                p.rect_filled(r, CornerRadius::same(12), Color32::from_rgb(14, 14, 16));
-                if playing || shown {
-                    p.rect_stroke(r, CornerRadius::same(12), Stroke::new(1.5, ORANGE), StrokeKind::Inside);
-                }
-                let art = Rect::from_min_max(r.min + vec2(6.0, 6.0), pos2(r.right() - 6.0, r.bottom() - 22.0));
-                match if it.kind == Kind::Image { app.thumb(&ctx, &it.path) } else { None } {
-                    Some(t) => {
-                        let s = t.size_vec2();
-                        let k = (art.width() / s.x).min(art.height() / s.y);
-                        egui::Image::from_texture(&t).corner_radius(CornerRadius::same(8)).paint_at(ui, Rect::from_center_size(art.center(), s * k));
-                    }
-                    None => kind_art(&p, art, it.kind, playing, now),
-                }
-                p.text(pos2(r.left() + 8.0, r.bottom() - 11.0), Align2::LEFT_CENTER, truncate(&it.name, (tw / 7.5) as usize), medium(11.5), TEXT);
-                if last_group != Some(it.group.as_str()) && !it.group.is_empty() {
-                    let chip = Rect::from_min_size(r.min + vec2(6.0, 6.0), vec2(8.0 + it.group.chars().count().min(14) as f32 * 6.0, 16.0));
-                    p.rect_filled(chip, CornerRadius::same(8), Color32::from_rgba_premultiplied(0, 0, 0, 170));
-                    p.text(chip.center(), Align2::CENTER_CENTER, truncate(&it.group, 14), body(10.0), MUTED);
-                }
-                last_group = Some(it.group.as_str());
                 let key = if i < 9 { super::hotkeys::Action::Media(i).combo(&app.settings.hotkeys) } else { String::new() };
-                let resp = ui.interact(r, Id::new(("strip", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if key.is_empty() { it.name.clone() } else { format!("{}  ({key})", it.name) });
-                if resp.hovered() {
+                if it.kind == Kind::Sound {
+                    // A sampler pad: dim at rest, lit while it plays.
+                    let c = pad_color(it, k);
+                    let fill = if playing { c } else { c.gamma_multiply(0.55) };
+                    p.rect_filled(r, CornerRadius::same(14), fill);
+                    p.rect_filled(Rect::from_min_max(r.min, pos2(r.right(), r.top() + r.height() * 0.45)), CornerRadius { nw: 14, ne: 14, sw: 0, se: 0 }, Color32::from_white_alpha(if playing { 34 } else { 14 }));
+                    if playing {
+                        p.rect_stroke(r.expand(2.0), CornerRadius::same(16), Stroke::new(2.0, Color32::WHITE), StrokeKind::Outside);
+                    }
+                    let name_y = if editing { r.center().y - 10.0 } else { r.center().y };
+                    p.text(pos2(r.center().x, name_y), Align2::CENTER_CENTER, truncate(&it.name, (r.width() / 7.5) as usize), semibold(12.5), Color32::WHITE);
+                    if !key.is_empty() && !editing {
+                        p.text(r.left_top() + vec2(8.0, 7.0), Align2::LEFT_TOP, key.replace("Ctrl+Alt+", ""), body(10.0), Color32::from_white_alpha(170));
+                    }
+                    if let Some(f) = prog {
+                        let track = Rect::from_min_max(pos2(r.left() + 10.0, r.bottom() - 9.0), pos2(r.right() - 10.0, r.bottom() - 6.0));
+                        p.rect_filled(track, CornerRadius::same(2), Color32::from_black_alpha(90));
+                        p.rect_filled(Rect::from_min_max(track.min, pos2(egui::lerp(track.left()..=track.right(), f), track.bottom())), CornerRadius::same(2), Color32::WHITE);
+                    }
+                    if it.looped {
+                        p.text(r.right_top() + vec2(-8.0, 6.0), Align2::RIGHT_TOP, "↻", semibold(12.0), Color32::from_white_alpha(200));
+                    }
+                } else {
+                    p.rect_filled(r, CornerRadius::same(12), Color32::from_rgb(14, 14, 16));
+                    if playing || shown {
+                        p.rect_stroke(r, CornerRadius::same(12), Stroke::new(1.5, ORANGE), StrokeKind::Inside);
+                    }
+                    let art = Rect::from_min_max(r.min + vec2(6.0, 6.0), pos2(r.right() - 6.0, r.bottom() - 22.0));
+                    match if it.kind == Kind::Image { app.thumb(&ctx, &it.path) } else { None } {
+                        Some(t) => {
+                            let s = t.size_vec2();
+                            let k = (art.width() / s.x).min(art.height() / s.y);
+                            egui::Image::from_texture(&t).corner_radius(CornerRadius::same(8)).paint_at(ui, Rect::from_center_size(art.center(), s * k));
+                        }
+                        None => kind_art(&p, art, it.kind, playing, now),
+                    }
+                    p.text(pos2(r.left() + 8.0, r.bottom() - 11.0), Align2::LEFT_CENTER, truncate(&it.name, (r.width() / 7.5) as usize), medium(11.5), TEXT);
+                }
+                let sense = if editing { Sense::click_and_drag() } else { Sense::click() };
+                let resp = ui.interact(r, Id::new(("strip", i)), sense).on_hover_cursor(if editing { CursorIcon::Grab } else { CursorIcon::PointingHand });
+                let resp = if editing { resp } else { resp.on_hover_text(if key.is_empty() { it.name.clone() } else { format!("{}  ({key})", it.name) }) };
+                if resp.hovered() && !dragging {
                     p.rect_stroke(r, CornerRadius::same(12), Stroke::new(1.0, Color32::from_white_alpha(120)), StrokeKind::Inside);
                 }
-                if resp.clicked() {
+                if editing {
+                    if dragging {
+                        p.rect_filled(r, CornerRadius::same(12), Color32::from_black_alpha(120));
+                    }
+                    // Unpin.
+                    let xr = Rect::from_center_size(r.right_top() + vec2(-12.0, 12.0), vec2(20.0, 20.0));
+                    let xresp = ui.interact(xr, Id::new(("strip-unpin", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(l("Take off the Studio", "Quitar del Estudio"));
+                    p.circle_filled(xr.center(), 10.0, if xresp.hovered() { RED } else { Color32::from_black_alpha(190) });
+                    p.text(xr.center(), Align2::CENTER_CENTER, "×", semibold(13.0), Color32::WHITE);
+                    if xresp.clicked() {
+                        unpin = Some(it.path.clone());
+                    }
+                    // Pad colors.
+                    if it.kind == Kind::Sound {
+                        let n = PAD_COLORS.len();
+                        let d = ((r.width() - 16.0) / n as f32).min(14.0);
+                        let y = r.center().y + 14.0;
+                        let x0 = r.center().x - d * n as f32 / 2.0;
+                        // Two rows of four when the pad is small.
+                        let (cols, dd) = if d < 9.0 { (4, (r.width() - 20.0) / 4.0) } else { (n, d) };
+                        for (ci, c) in PAD_COLORS.iter().enumerate() {
+                            let (cx, cy) = if cols == n { (x0 + dd * (ci as f32 + 0.5), y) } else { (r.center().x - dd * 2.0 + dd * ((ci % 4) as f32 + 0.5), y - 6.0 + 14.0 * (ci / 4) as f32) };
+                            let cr = Rect::from_center_size(pos2(cx, cy), vec2(dd, dd));
+                            let cresp = ui.interact(cr, Id::new(("pad-color", i, ci)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+                            let sel = pad_color(it, k) == *c;
+                            p.circle_filled(cr.center(), dd * 0.36, *c);
+                            p.circle_stroke(cr.center(), dd * 0.36, Stroke::new(if sel { 2.0 } else { 1.0 }, if sel { Color32::WHITE } else { Color32::from_black_alpha(140) }));
+                            if cresp.clicked() {
+                                set_color = Some((i, ci as u8));
+                            }
+                        }
+                    }
+                    if resp.drag_started() {
+                        app.strip_drag = Some(k);
+                    }
+                } else if resp.clicked() {
                     fire = Some(i);
+                }
+            }
+            // Dragging: a line where it lands; it moves on release.
+            if let (true, Some(from)) = (editing, app.strip_drag) {
+                if let Some(ptr) = ui.ctx().pointer_interact_pos() {
+                    let mut to = lefts.iter().zip(&widths).filter(|(l, w)| ptr.x > **l + **w / 2.0).count();
+                    to = to.min(pins.len());
+                    let lx = if to < lefts.len() { lefts[to] - gap / 2.0 } else { x - gap / 2.0 };
+                    ui.painter().line_segment([pos2(lx, all.top()), pos2(lx, all.bottom())], Stroke::new(3.0, ORANGE));
+                    if ui.input(|i| i.pointer.any_released()) {
+                        moved = Some((from, to));
+                    }
+                }
+                if !ui.input(|i| i.pointer.any_down()) && moved.is_none() {
+                    app.strip_drag = None;
                 }
             }
         });
     });
+    let mut save = false;
+    if let Some((from, to)) = moved {
+        app.strip_drag = None;
+        // Positions are in the pinned list, which may skip deleted paths.
+        let mut list: Vec<String> = pins.iter().map(|&i| items[i].path.clone()).collect();
+        let x = list.remove(from);
+        list.insert(if to > from { to - 1 } else { to }, x);
+        app.settings.media_strip = list;
+        save = true;
+    }
+    if let Some((i, c)) = set_color {
+        app.settings.media[i].color = Some(c);
+        save = true;
+    }
+    if let Some(path) = unpin {
+        app.settings.media_strip.retain(|p| *p != path);
+        save = true;
+    }
+    if save {
+        app.settings_changed();
+    }
     if let Some(i) = fire {
         app.media_fire(i);
     }
-    if !app.status.media.is_empty() {
+    if !app.status.media.is_empty() || app.strip_drag.is_some() {
         ctx.request_repaint();
     }
 }
@@ -394,6 +549,7 @@ pub(super) fn truncate(s: &str, n: usize) -> String {
 
 pub(super) fn pill(ui: &mut Ui, r: Rect, id: &str, label: &str, primary: bool) -> bool {
     let resp = ui.interact(r, Id::new(id), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     let fill = if primary {
         if resp.hovered() { Color32::from_gray(225) } else { Color32::WHITE }
     } else if resp.hovered() {

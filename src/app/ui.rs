@@ -369,8 +369,12 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     let strip_h = 30.0;
     let controls_h = 64.0;
     // One row under the preview: record controls on the left, scenes on the
-    // right, Custom alone in the corner.
-    let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h));
+    // right, Custom alone in the corner. When that doesn't fit, the scenes
+    // get a row of their own (they never disappear).
+    let n_pins = app.settings.pinned.len().max(1) as f32;
+    let stacked = inner.width() < 560.0 + 190.0 + 70.0 * n_pins + 110.0;
+    let scenes_row = if stacked { 58.0 } else { 0.0 };
+    let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h - scenes_row));
     // Each preview on its own dark panel, with a gap between them.
     if app.settings.vertical_preview && app.settings.horizontal_preview && app.status.error.is_none() {
         let vcol = (view.height() * 9.0 / 16.0).floor() + 16.0;
@@ -436,44 +440,21 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             } else {
                 anchor = vimg;
             }
-            if custom && app.settings.layout_v.is_some() {
+            if custom && app.settings.layout_v.as_ref().is_some_and(|v| *v != app.settings.auto_vertical()) {
                 let reset = Rect::from_min_size(pos2(vimg.left() + 10.0, vimg.bottom() - 72.0), vec2(vimg.width() - 20.0, 24.0));
                 if pill(ui, reset, "reset-v", l("Back to automatic", "Volver a automático"), Color32::from_rgba_premultiplied(0, 0, 0, 160), TEXT, semibold(11.0))
                     .on_hover_text(l("Make the 9:16 layout from the 16:9 one again", "Rehacer el layout 9:16 a partir del 16:9"))
                     .clicked()
                 {
-                    app.settings.layout_v = None;
+                    app.settings.layout_v = Some(app.settings.auto_vertical());
+                    app.settings.keep_vertical();
                     app.sel_layer = None;
                     app.settings_changed();
                 }
             }
             vimg_r = Some(vimg);
         }
-        // Show / hide buttons: "9:16" on the 16:9 picture, "16:9" on the
-        // 9:16 one (the 16:9 one can only hide while the 9:16 one shows).
-        let mut toggle_chip = |ui: &mut Ui, at: Rect, id: &str, label: &str, on: bool, vertical_icon: bool, tip: &str| -> bool {
-            let chip = Rect::from_min_size(pos2(at.right() - 12.0 - 72.0, at.bottom() - 12.0 - 26.0), vec2(72.0, 26.0));
-            let r = ui.interact(chip, Id::new(id), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tip);
-            p.rect_filled(chip, CornerRadius::same(13), if r.hovered() { Color32::from_rgba_premultiplied(30, 30, 34, 190) } else { Color32::from_rgba_premultiplied(0, 0, 0, 150) });
-            let ic = Rect::from_center_size(chip.left_center() + vec2(16.0, 0.0), if vertical_icon { vec2(8.0, 14.0) } else { vec2(15.0, 9.0) });
-            let col = if on { ORANGE } else { TEXT };
-            p.rect_stroke(ic, CornerRadius::same(2), Stroke::new(1.5, col), StrokeKind::Inside);
-            text(&p, chip.left_center() + vec2(28.0, 0.0), Align2::LEFT_CENTER, label, semibold(11.0), col);
-            r.clicked()
-        };
-        if let Some(img) = himg
-            && toggle_chip(ui, img, "toggle-v", "9:16", show_v, true, if show_v { l("Hide the vertical (9:16) preview", "Ocultar la vista vertical (9:16)") } else { l("Show the vertical (9:16) preview", "Mostrar la vista vertical (9:16)") })
-        {
-            app.settings.vertical_preview = !show_v;
-            app.settings.horizontal_preview = true;
-            app.settings_changed();
-        }
-        if let Some(vimg) = vimg_r
-            && toggle_chip(ui, vimg, "toggle-h", "16:9", show_h, false, if show_h { l("Hide the horizontal (16:9) preview", "Ocultar la vista horizontal (16:9)") } else { l("Show the horizontal (16:9) preview", "Mostrar la vista horizontal (16:9)") })
-        {
-            app.settings.horizontal_preview = !show_h;
-            app.settings_changed();
-        }
+        let _ = (himg, vimg_r);
         let img = anchor;
         // Show Chisme in recordings (top right).
         {
@@ -570,7 +551,8 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             .cloned()
             .collect();
         let n = pins.len() as f32;
-        let custom_box = Rect::from_min_size(pos2(inner.right() - 6.0 - 92.0, cy - 25.0), vec2(92.0, 50.0));
+        let scy = if stacked { view.bottom() + controls_h + scenes_row / 2.0 } else { cy };
+        let custom_box = Rect::from_min_size(pos2(inner.right() - 6.0 - 92.0, scy - 25.0), vec2(92.0, 50.0));
         // What Record writes, next to the teleprompter.
         let out_w = 150.0;
         let out_r = Rect::from_min_size(pos2(pc.x + 24.0 + 16.0, cy - 15.0), vec2(out_w, 30.0));
@@ -609,12 +591,13 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
         }
         // The studio picker sits just left of its scenes.
         let combo_w = 170.0;
-        let left_edge = out_r.right() + 10.0 + combo_w + 10.0;
+        let row_left = if stacked { inner.left() + 6.0 } else { out_r.right() + 10.0 };
+        let left_edge = row_left + combo_w + 10.0;
         let w = (92.0 * n).min(custom_box.left() - 10.0 - left_edge).max(0.0);
-        let seg = Rect::from_min_size(pos2(custom_box.left() - 10.0 - w, cy - 25.0), vec2(w, 50.0));
-        let show_pins = seg.width() > 60.0;
-        let combo = Rect::from_min_size(pos2(if show_pins { seg.left() } else { custom_box.left() } - 10.0 - combo_w, cy - 15.0), vec2(combo_w, 30.0));
-        if combo.left() > out_r.right() + 6.0 {
+        let seg = Rect::from_min_size(pos2(custom_box.left() - 10.0 - w, scy - 25.0), vec2(w, 50.0));
+        let show_pins = seg.width() > 40.0;
+        let combo = Rect::from_min_size(pos2(if show_pins { seg.left() } else { custom_box.left() } - 10.0 - combo_w, scy - 15.0), vec2(combo_w, 30.0));
+        if combo.left() >= row_left - 4.0 {
             let names: Vec<String> = app.settings.studios.iter().map(|s| s.name.clone()).collect();
             let keys: Vec<String> = (0..names.len()).map(|i| if i < 9 { super::hotkeys::Action::Studio(i).combo(&app.settings.hotkeys) } else { String::new() }).collect();
             let cur = app.settings.studio;
@@ -721,11 +704,12 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                 if resp.clicked() {
                     match pin {
                         Some(Pin::Scene(s)) => {
+                            app.settings.keep_vertical();
                             app.settings.scene = *s;
                             app.settings.switch += 1;
                             app.settings.layout = None;
-                            app.settings.layout_v = None;
                             app.settings.template = None;
+                            app.settings.load_vertical(None);
                             app.sel_layer = None;
                             app.settings_changed();
                         }
@@ -756,6 +740,58 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
         let r = text(&p, pos2(x + 12.0, strip.center().y), Align2::LEFT_CENTER, v, semibold(12.5), TEXT);
         let r2 = text(&p, pos2(r.right() + 5.0, strip.center().y), Align2::LEFT_CENTER, label, body(11.5), FAINT);
         x = r2.right() + 22.0;
+    }
+    // What you see here: 16:9, 9:16 or both (what's recorded is the Record
+    // picker's choice).
+    {
+        let (h, v) = (app.settings.horizontal_preview || !app.settings.vertical_preview, app.settings.vertical_preview);
+        let cur = if h && v { 2 } else if v { 1 } else { 0 };
+        let labels = [("16:9", l("Show only the horizontal preview", "Ver solo la vista horizontal")), ("9:16", l("Show only the vertical preview", "Ver solo la vista vertical")), (l("Both", "Ambas"), l("Show both previews side by side", "Ver las dos vistas lado a lado"))];
+        let seg_w = 58.0;
+        let right = strip.right() - 96.0;
+        let left = right - seg_w * 3.0;
+        let view_label = text(&p, pos2(left - 8.0, strip.center().y), Align2::RIGHT_CENTER, l("View", "Vista"), body(11.5), FAINT);
+        // Lock the custom layout (only while editing one).
+        if app.settings.layout.is_some() && app.settings.template.is_none() {
+            let locked = app.settings.layout_locked;
+            let lk = Rect::from_min_max(pos2(view_label.left() - 16.0 - 104.0, strip.center().y - 12.0), pos2(view_label.left() - 16.0, strip.center().y + 12.0));
+            let resp = ui.interact(lk, Id::new("layout-lock"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if locked {
+                l("Locked: layers can't be moved. Click to edit again.", "Bloqueado: las capas no se mueven. Clic para editar de nuevo.")
+            } else {
+                l("Lock the layout so nothing moves by accident", "Bloquea el layout para no mover nada por accidente")
+            });
+            p.rect_filled(lk, CornerRadius::same(12), if locked { Color32::from_rgba_premultiplied(90, 44, 0, 160) } else if resp.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 110) } else { Color32::from_rgba_premultiplied(0, 0, 0, 110) });
+            // A padlock: body and shackle (closed or open).
+            let c = lk.left_center() + vec2(16.0, 2.0);
+            let col = if locked { ORANGE } else { TEXT };
+            p.rect_filled(Rect::from_center_size(c, vec2(11.0, 8.0)), CornerRadius::same(2), col);
+            let sh = if locked { vec![c + vec2(-3.5, -4.0), c + vec2(-3.5, -7.0), c + vec2(0.0, -9.5), c + vec2(3.5, -7.0), c + vec2(3.5, -4.0)] } else { vec![c + vec2(-3.5, -4.0), c + vec2(-3.5, -7.0), c + vec2(0.0, -9.5), c + vec2(3.5, -7.5)] };
+            p.add(EShape::line(sh, Stroke::new(1.6, col)));
+            text(&p, lk.left_center() + vec2(30.0, 0.0), Align2::LEFT_CENTER, if locked { l("Locked", "Bloqueado") } else { l("Unlocked", "Desbloqueado") }, semibold(11.0), col);
+            if resp.clicked() {
+                app.settings.layout_locked = !locked;
+                app.drag = None;
+                app.settings_changed();
+            }
+        }
+        let bg = Rect::from_min_max(pos2(left, strip.center().y - 12.0), pos2(right, strip.center().y + 12.0));
+        p.rect_filled(bg, CornerRadius::same(12), Color32::from_rgba_premultiplied(0, 0, 0, 110));
+        for (k, (label, tip)) in labels.iter().enumerate() {
+            let r = Rect::from_min_size(pos2(left + seg_w * k as f32, bg.top()), vec2(seg_w, bg.height())).shrink(2.0);
+            let resp = ui.interact(r, Id::new(("view-pick", k)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(*tip);
+            let sel = k == cur;
+            if sel {
+                p.rect_filled(r, CornerRadius::same(10), Color32::WHITE);
+            } else if resp.hovered() {
+                p.rect_filled(r, CornerRadius::same(10), Color32::from_rgba_premultiplied(60, 60, 66, 110));
+            }
+            text(&p, r.center(), Align2::CENTER_CENTER, *label, semibold(11.0), if sel { Color32::BLACK } else { TEXT });
+            if resp.clicked() && !sel {
+                app.settings.horizontal_preview = k != 1;
+                app.settings.vertical_preview = k != 0;
+                app.settings_changed();
+            }
+        }
     }
 }
 

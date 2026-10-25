@@ -57,13 +57,18 @@ impl App {
 
     /// Start editing: the current scene as layers.
     pub fn customize_layout(&mut self) {
-        // A template becomes the starting point of the custom layout.
+        // A template becomes the starting point of the custom layout, with
+        // the 9:16 layout it had.
+        let v = self.settings.vertical_layout();
+        self.settings.keep_vertical();
         self.settings.template = None;
         if self.settings.layout.is_none() {
             let (w, h) = (self.status.out_size.0.max(16) as f64, self.status.out_size.1.max(9) as f64);
             let cam_aspect = self.status.cam.as_ref().map_or(16.0 / 9.0, |c| c.1.0 as f64 / c.1.1.max(1) as f64);
             self.settings.layout = Some(Layout::from_scene(self.settings.scene, &self.settings.pip(), w, h, cam_aspect, w / h));
         }
+        self.settings.layout_v = Some(v);
+        self.settings.keep_vertical();
         self.sel_layer = None;
         self.settings_changed();
     }
@@ -72,6 +77,10 @@ impl App {
 /// Mouse editing of the layout on the preview image `img`: the 16:9 one,
 /// or (`vertical`) the 9:16 one, which starts from the automatic layout.
 pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect, vertical: bool) {
+    // Locked: nothing moves by accident.
+    if app.settings.layout_locked {
+        return;
+    }
     let layout = if vertical {
         app.settings.layout_v.clone().unwrap_or_else(|| app.settings.vertical_layout())
     } else {

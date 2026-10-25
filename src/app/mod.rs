@@ -159,6 +159,12 @@ pub struct App {
     pub chat_setup: bool,
     /// A scene being dragged in the bar under the preview (its index).
     pub pin_drag: Option<usize>,
+    /// Templates page: every template, not just the studio's.
+    pub templates_all: bool,
+    /// The Studio's Media Board strip: editing (order, colors), and the tile
+    /// being dragged.
+    pub strip_edit: bool,
+    pub strip_drag: Option<usize>,
     pub chat_key: String,
     pub drag: Option<editor::Drag>,
     pub guides: (Option<f64>, Option<f64>),
@@ -258,6 +264,9 @@ impl App {
             chat,
             chat_setup: false,
             pin_drag: None,
+            templates_all: false,
+            strip_edit: false,
+            strip_drag: None,
             chat_key: String::new(),
             drag: None,
             guides: (None, None),
@@ -434,12 +443,13 @@ impl App {
     /// Switch to a template's layout (and brand, if it has one), live.
     pub fn apply_template(&mut self, t: &crate::templates::Template) {
         self.settings.switch += 1;
+        self.settings.keep_vertical();
         self.settings.layout = Some(t.layout.clone());
-        self.settings.layout_v = t.vertical.clone();
         if let Some(b) = &t.brand {
             self.settings.brand = b.clone();
         }
         self.settings.template = Some(t.name.clone());
+        self.settings.load_vertical(t.vertical.clone());
         self.sel_layer = None;
         self.settings_changed();
         self.toast(t!("Template: {}", "Plantilla: {}", t.name));
