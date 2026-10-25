@@ -94,6 +94,28 @@ fn row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> Response) -> Respo
     .inner
 }
 
+/// Height of a folded card (just its title).
+pub(super) const FOLDED_H: f32 = 58.0;
+
+/// A card title with a fold arrow in front. True when clicked.
+pub(super) fn fold_title(ui: &mut Ui, card: Rect, title: &str, folded: bool, id: &str) -> bool {
+    let p = ui.painter().clone();
+    let r = Rect::from_min_size(card.min + vec2(12.0, 10.0), vec2(title.chars().count() as f32 * 8.5 + 44.0, 34.0));
+    let resp = ui
+        .interact(r, Id::new(("fold", id)), Sense::click())
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(if folded { l("Show", "Mostrar") } else { l("Hide", "Ocultar") });
+    if resp.hovered() {
+        p.rect_filled(r, CornerRadius::same(10), Color32::from_rgba_premultiplied(40, 40, 44, 60));
+    }
+    let c = pos2(card.left() + 27.0, card.top() + 28.0);
+    let pts = if folded { vec![c + vec2(-2.0, -5.0), c + vec2(3.0, 0.0), c + vec2(-2.0, 5.0)] } else { vec![c + vec2(-5.0, -2.0), c + vec2(0.0, 3.0), c + vec2(5.0, -2.0)] };
+    p.add(EShape::line(pts, Stroke::new(1.8, MUTED)));
+    text(&p, pos2(card.left() + 40.0, card.top() + 20.0), Align2::LEFT_TOP, title, medium(15.0), TEXT);
+    resp.clicked()
+}
+
+#[allow(dead_code)]
 fn card_title(p: &egui::Painter, rect: Rect, title: &str, sub: Option<&str>) {
     text(p, rect.min + vec2(22.0, 20.0), Align2::LEFT_TOP, title, medium(15.0), TEXT);
     if let Some(s) = sub {
@@ -271,44 +293,34 @@ fn header(app: &mut App, ui: &mut Ui, content: Rect) -> Rect {
 /// editor while building a custom scene) and the Media Board. Wide windows
 /// get two columns; narrow ones stack everything and scroll.
 fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
-    let narrow = area.width() < 1100.0;
     let media_h = 158.0;
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             let w = area.width() - 4.0;
-            if narrow {
-                let pv_h = (w * 9.0 / 16.0 + 96.0).max(330.0);
-                let side_h = 380.0;
-                let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + side_h + media_h + 32.0), Sense::hover());
-                let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
-                let y2 = preview_card.bottom() + 16.0;
+            // Preview on top: the video at 16:9 plus the control row and stats,
+            // capped so the cards below stay in view.
+            let rows_h = 24.0 + 64.0 + 30.0;
+            let pv_h = ((w - 24.0) * 9.0 / 16.0 + rows_h).min((area.height() * 0.62).max(420.0)).max(330.0).floor();
+            // Live audio and Camera side by side (stacked when narrow), each
+            // only as tall as it needs when folded.
+            let audio_h = if app.settings.fold_audio { FOLDED_H } else { 250.0 };
+            let cam_h = if app.settings.fold_camera { FOLDED_H } else { 400.0 };
+            let side_by_side = w >= 760.0;
+            let cards_h = if side_by_side { audio_h.max(cam_h) } else { audio_h + 16.0 + cam_h };
+            let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + 16.0 + cards_h + 16.0 + media_h), Sense::hover());
+            let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
+            let y2 = preview_card.bottom() + 16.0;
+            let (audio_card, cam_card) = if side_by_side {
                 let half = ((w - 16.0) / 2.0).floor();
-                let (audio_card, cam_card) = if w < 640.0 {
-                    (Rect::from_min_size(pos2(all.left(), y2), vec2(w, 230.0)), Rect::from_min_size(pos2(all.left(), y2 + 246.0), vec2(w, side_h - 16.0)))
-                } else {
-                    (Rect::from_min_size(pos2(all.left(), y2), vec2(half, 240.0)), Rect::from_min_size(pos2(all.left() + half + 16.0, y2), vec2(half, side_h)))
-                };
-                let media = Rect::from_min_size(pos2(all.left(), cam_card.bottom().max(audio_card.bottom()) + 16.0), vec2(w, media_h));
-                preview(app, ui, preview_card);
-                audio(app, ui, audio_card);
-                side_card(app, ui, cam_card);
-                super::media_ui::strip(app, ui, media);
+                (Rect::from_min_size(pos2(all.left(), y2), vec2(half, audio_h)), Rect::from_min_size(pos2(all.left() + half + 16.0, y2), vec2(w - half - 16.0, cam_h)))
             } else {
-                let total = area.height().max(660.0);
-                let (all, _) = ui.allocate_exact_size(vec2(w, total), Sense::hover());
-                let top = Rect::from_min_max(all.min, pos2(all.right(), all.bottom() - media_h - 16.0));
-                let left_w = (top.width() * 0.64).floor();
-                let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
-                let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
-                let audio_h = (right.height() * 0.36).clamp(200.0, 260.0).floor();
-                let audio_card = Rect::from_min_size(right.min, vec2(right.width(), audio_h));
-                let cam_card = Rect::from_min_max(pos2(right.left(), audio_card.bottom() + 16.0), right.max);
-                let media = Rect::from_min_max(pos2(all.left(), all.bottom() - media_h), all.max);
-                preview(app, ui, preview_card);
-                audio(app, ui, audio_card);
-                side_card(app, ui, cam_card);
-                super::media_ui::strip(app, ui, media);
-            }
+                (Rect::from_min_size(pos2(all.left(), y2), vec2(w, audio_h)), Rect::from_min_size(pos2(all.left(), y2 + audio_h + 16.0), vec2(w, cam_h)))
+            };
+            let media = Rect::from_min_size(pos2(all.left(), y2 + cards_h + 16.0), vec2(w, media_h));
+            preview(app, ui, preview_card);
+            audio(app, ui, audio_card);
+            side_card(app, ui, cam_card);
+            super::media_ui::strip(app, ui, media);
         });
     });
 }
@@ -328,9 +340,9 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     let inner = card.shrink(12.0);
     let strip_h = 30.0;
     let controls_h = 64.0;
-    // The pinned scenes get their own row under the preview.
-    let scenes_h = 56.0;
-    let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h - scenes_h));
+    // One row under the preview: record controls on the left, scenes on the
+    // right, Custom alone in the corner.
+    let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h));
     p.rect_filled(view, CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
 
     let st = app.status.clone();
@@ -358,8 +370,8 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             let w = 64.0 + label.chars().count() as f32 * 6.4;
             let chip = Rect::from_min_size(pos2(img.right() - w - 12.0, img.top() + 12.0), vec2(w, 26.0));
             let r = ui.interact(chip, Id::new("show-self"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(l(
-                "Off: Chisme's windows never appear in recordings or streams. On: record a tutorial of Chisme itself.",
-                "Apagado: las ventanas de Chisme nunca salen en grabaciones ni transmisiones. Encendido: graba un tutorial del propio Chisme.",
+                "Off: Chisme's windows don't appear in what you record or stream. On: they do (to record a tutorial of Chisme). It only matters while recording or streaming.",
+                "Apagado: las ventanas de Chisme no salen en lo que grabas o transmites. Encendido: sí salen (para grabar un tutorial de Chisme). Solo aplica mientras grabas o transmites.",
             ));
             p.rect_filled(chip, CornerRadius::same(13), Color32::from_rgba_premultiplied(0, 0, 0, 150));
             text(&p, chip.left_center() + vec2(12.0, 0.0), Align2::LEFT_CENTER, label, semibold(11.0), TEXT);
@@ -383,7 +395,7 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     }
 
     // Controls: Record (the white "Start Now" pill), pause, scene, timer.
-    let cy = view.bottom() + scenes_h + controls_h / 2.0;
+    let cy = view.bottom() + controls_h / 2.0;
     let rec_r = Rect::from_min_size(pos2(inner.left() + 6.0, cy - 24.0), vec2(168.0, 48.0));
     let label = if st.recording { l("■  Stop", "■  Detener") } else { l("●  Record", "●  Grabar") };
     let can = st.ready && st.error.is_none();
@@ -431,7 +443,7 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     let pc = tc;
     // Timer.
     let timer = if st.recording { clock(st.rec_secs) } else { "00:00".into() };
-    text(&p, pos2(inner.right() - 10.0, cy), Align2::RIGHT_CENTER, timer, display(24.0), if st.recording { TEXT } else { FAINT });
+    text(&p, pos2(inner.right() - 10.0, inner.bottom() - strip_h / 2.0), Align2::RIGHT_CENTER, timer, display(18.0), if st.recording { TEXT } else { FAINT });
     // Quick access: the pinned scenes and templates (Templates page), then
     // Custom. Camera scenes need a camera; missing templates are skipped.
     {
@@ -446,17 +458,25 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             })
             .cloned()
             .collect();
-        let n = pins.len() as f32 + 1.0;
-        let _ = pc;
-        let w = (92.0 * n).min(inner.width());
-        let seg = Rect::from_min_size(pos2(inner.left(), view.bottom() + 6.0), vec2(w, 50.0));
-        if seg.width() > 60.0 {
-            p.rect_filled(seg, CornerRadius::same(14), Color32::from_rgba_premultiplied(0, 0, 0, 90));
-            let tw = seg.width() / n;
+        let n = pins.len() as f32;
+        let custom_box = Rect::from_min_size(pos2(inner.right() - 6.0 - 92.0, cy - 25.0), vec2(92.0, 50.0));
+        let left_edge = pc.x + 24.0 + 20.0;
+        let w = (92.0 * n).min(custom_box.left() - 10.0 - left_edge).max(0.0);
+        let seg = Rect::from_min_size(pos2(custom_box.left() - 10.0 - w, cy - 25.0), vec2(w, 50.0));
+        let show_pins = seg.width() > 60.0;
+        {
+            p.rect_filled(custom_box, CornerRadius::same(14), Color32::from_rgba_premultiplied(0, 0, 0, 90));
+            if show_pins {
+                p.rect_filled(seg, CornerRadius::same(14), Color32::from_rgba_premultiplied(0, 0, 0, 90));
+            }
+            let tw = if n > 0.0 { seg.width() / n } else { 0.0 };
             let custom = app.settings.layout.is_some();
             let brand = app.settings.brand.clone();
             for i in 0..=pins.len() {
-                let r = Rect::from_min_size(pos2(seg.left() + tw * i as f32, seg.top()), vec2(tw, seg.height())).shrink(3.0);
+                if i < pins.len() && !show_pins {
+                    continue;
+                }
+                let r = if i < pins.len() { Rect::from_min_size(pos2(seg.left() + tw * i as f32, seg.top()), vec2(tw, seg.height())).shrink(3.0) } else { custom_box.shrink(3.0) };
                 let pin = pins.get(i);
                 let tip = match pin {
                     Some(Pin::Scene(s)) => s.label().to_string(),
@@ -721,7 +741,14 @@ fn audio(app: &mut App, ui: &mut Ui, card: Rect) {
     let p = ui.painter().clone();
     theme::card(&p, card);
     let st = app.status.clone();
-    card_title(&p, card, l("Live audio", "Audio en vivo"), None);
+    let folded = app.settings.fold_audio;
+    if fold_title(ui, card, l("Live audio", "Audio en vivo"), folded, "audio") {
+        app.settings.fold_audio = !folded;
+        app.settings_changed();
+    }
+    if folded {
+        return;
+    }
     // Mute / unmute everything.
     // System, mic, and the Media Board (sounds and clips you play).
     let sources: Vec<usize> = [st.has_system.then_some(0), st.has_mic.then_some(1), Some(2)].into_iter().flatten().collect();
@@ -871,7 +898,14 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
     let p = ui.painter().clone();
     theme::card(&p, card);
     let cam = app.status.cam.clone();
-    text(&p, card.min + vec2(22.0, 20.0), Align2::LEFT_TOP, l("Camera", "Cámara"), medium(15.0), TEXT);
+    let folded = app.settings.fold_camera;
+    if fold_title(ui, card, l("Camera", "Cámara"), folded, "camera") {
+        app.settings.fold_camera = !folded;
+        app.settings_changed();
+    }
+    if folded {
+        return;
+    }
     let inner = Rect::from_min_max(pos2(card.left() + 22.0, card.top() + 54.0), pos2(card.right() - 22.0, card.bottom() - 16.0));
     // Tabs: the look (overlay, background) or the camera's own controls.
     if cam.is_some() {
