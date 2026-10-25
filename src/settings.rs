@@ -47,6 +47,9 @@ pub struct Settings {
     pub media_muted: bool,
     /// Show Chisme's own windows in recordings (normally hidden).
     pub show_self: bool,
+    /// Studio page: Live audio and Camera cards folded to their title.
+    pub fold_audio: bool,
+    pub fold_camera: bool,
     /// Quick-access scenes and templates under the preview, in order.
     pub pinned: Vec<Pin>,
     /// Part of the camera's name; None = no camera.
@@ -199,6 +202,8 @@ impl Default for Settings {
             media_gain_db: 0.0,
             media_muted: false,
             show_self: false,
+            fold_audio: false,
+            fold_camera: false,
             pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),
             camera: None,
             scene: Scene::ScreenCam,

@@ -179,7 +179,14 @@ pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect) {
 pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
     let p = ui.painter().clone();
     theme::card(&p, card);
-    p.text(card.min + vec2(22.0, 20.0), Align2::LEFT_TOP, tr("Layers", "Capas"), medium(15.0), TEXT);
+    let folded = app.settings.fold_camera;
+    if super::ui::fold_title(ui, card, tr("Layers", "Capas"), folded, "layers") {
+        app.settings.fold_camera = !folded;
+        app.settings_changed();
+    }
+    if folded {
+        return;
+    }
     let inner = Rect::from_min_max(pos2(card.left() + 18.0, card.top() + 50.0), pos2(card.right() - 18.0, card.bottom() - 12.0));
     let cam_aspect = app.status.cam.as_ref().map_or(16.0 / 9.0, |c| c.1.0 as f64 / c.1.1.max(1) as f64);
     let (ow, oh) = (app.status.out_size.0.max(16) as f64, app.status.out_size.1.max(9) as f64);
