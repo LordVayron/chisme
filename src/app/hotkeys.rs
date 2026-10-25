@@ -21,6 +21,8 @@ pub enum Action {
     Template(usize),
     /// Fire Media Board tile 1…9 (0-based).
     Media(usize),
+    /// Switch to studio 1…9 (0-based).
+    Studio(usize),
 }
 
 impl Action {
@@ -37,6 +39,7 @@ impl Action {
             Action::PrompterPlay => l("Teleprompter play / pause", "Teleprompter play / pausa").into(),
             Action::Template(i) => crate::t!("Template {}", "Plantilla {}", i + 1),
             Action::Media(i) => crate::t!("Media Board tile {}", "Media Board, tarjeta {}", i + 1),
+            Action::Studio(i) => crate::t!("Studio {}", "Studio {}", i + 1),
         }
     }
 
@@ -46,6 +49,7 @@ impl Action {
         match self {
             Action::Template(i) => digit(&h.templates, i),
             Action::Media(i) => digit(&h.media, i),
+            Action::Studio(i) => digit(&h.studios, i),
             a => a.slot(&mut h.clone()).clone(),
         }
     }
@@ -61,6 +65,7 @@ impl Action {
             Action::PrompterPlay => &mut h.prompter_play,
             Action::Template(_) => &mut h.templates,
             Action::Media(_) => &mut h.media,
+            Action::Studio(_) => &mut h.studios,
         }
     }
 
@@ -68,6 +73,7 @@ impl Action {
     pub fn all() -> Vec<Action> {
         let mut v = Action::SINGLE.to_vec();
         v.extend((0..9).map(Action::Template));
+        v.extend((0..9).map(Action::Studio));
         v.extend((0..9).map(Action::Media));
         v
     }

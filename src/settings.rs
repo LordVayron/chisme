@@ -157,6 +157,7 @@ pub struct Hotkeys {
     pub prompter_play: String,
     pub templates: String,
     pub media: String,
+    pub studios: String,
 }
 
 impl Default for Hotkeys {
@@ -170,6 +171,7 @@ impl Default for Hotkeys {
             prompter_play: "Ctrl+Shift+Space".into(),
             templates: "Ctrl+Shift".into(),
             media: "Ctrl+Alt".into(),
+            studios: "Alt+Shift".into(),
         }
     }
 }

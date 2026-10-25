@@ -157,6 +157,8 @@ pub struct App {
     /// Live chat connections, the setup view, and a typed YouTube key.
     pub chat: Option<crate::chat::Chat>,
     pub chat_setup: bool,
+    /// A scene being dragged in the bar under the preview (its index).
+    pub pin_drag: Option<usize>,
     pub chat_key: String,
     pub drag: Option<editor::Drag>,
     pub guides: (Option<f64>, Option<f64>),
@@ -255,6 +257,7 @@ impl App {
             edit_v: false,
             chat,
             chat_setup: false,
+            pin_drag: None,
             chat_key: String::new(),
             drag: None,
             guides: (None, None),
@@ -369,6 +372,14 @@ impl App {
                 }
             }
             Action::Media(i) => self.media_fire(i),
+            Action::Studio(i) => {
+                if i < self.settings.studios.len() {
+                    self.settings.switch_studio(i);
+                    self.settings_changed();
+                    let name = self.settings.studios[i].name.clone();
+                    self.toast(t!("Studio: {}", "Studio: {}", name));
+                }
+            }
         }
     }
 
