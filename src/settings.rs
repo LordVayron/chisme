@@ -418,7 +418,9 @@ impl Settings {
         if let Some(v) = &self.layout_v {
             return v.clone();
         }
-        let h = self.layout.clone().unwrap_or_else(|| Layout::from_scene(self.scene, &self.pip(), 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0));
+        // Without a camera the fixed scenes show the screen only (like 16:9).
+        let scene = if self.camera.is_some() { self.scene } else { Scene::Screen };
+        let h = self.layout.clone().unwrap_or_else(|| Layout::from_scene(scene, &self.pip(), 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0));
         h.to_vertical()
     }
 
