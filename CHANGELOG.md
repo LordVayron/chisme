@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Studios: named sets of scenes for each kind of show. Pick one next to the scenes under the preview, and create, rename and edit them on the Templates page. Chisme starts with your current scenes plus Podcast, Content / Reels, Tutorial and Gaming / Stream.
+
+### Removed
+- Import and export of .chisme template files.
+
 ### Changed
 - The Studio page has a new layout: the preview spans the top, Record and its buttons sit on the left under it, the scenes on the right and Custom on its own in the corner. Live audio and Camera sit below, side by side, and fold to their title (Chisme remembers how you left them).
 - The "Show Chisme in recording" tip says it only matters while recording or streaming.

@@ -184,6 +184,9 @@ impl App {
         hotkeys.apply(&settings.hotkeys);
         crate::templates::ensure_starters(&settings.pip());
         crate::templates::ensure_guest_scenes();
+        let names: Vec<String> = crate::templates::list().iter().map(|t| t.name.clone()).collect();
+        settings.ensure_studios(&names);
+        let _ = settings.save();
         // The starter sound pad, and the new pack in place of the old one.
         if settings.media_pack < 2 {
             settings.media.retain(|m| !crate::media::is_old_starter(m));
@@ -456,33 +459,6 @@ impl App {
     }
 
     /// Export a template (with its images inside) where the user chooses.
-    pub fn export_template(&mut self, t: &crate::templates::Template) {
-        let file = rfd::FileDialog::new()
-            .set_title(l("Export template", "Exportar plantilla"))
-            .set_file_name(format!("{}.{}", crate::templates::slug(&t.name), crate::templates::EXT))
-            .add_filter(l("Chisme template", "Plantilla de Chisme"), &[crate::templates::EXT])
-            .save_file();
-        if let Some(f) = file {
-            match crate::templates::export(t, &f) {
-                Ok(()) => self.toast(t!("Exported: {}", "Exportada: {}", f.file_name().unwrap_or_default().to_string_lossy())),
-                Err(e) => self.toast(t!("Couldn't export: {:#}", "No pude exportar: {:#}", e)),
-            }
-        }
-    }
-
-    pub fn import_template(&mut self) {
-        let file = rfd::FileDialog::new().set_title(l("Import template", "Importar plantilla")).add_filter(l("Chisme template", "Plantilla de Chisme"), &[crate::templates::EXT]).pick_file();
-        if let Some(f) = file {
-            match crate::templates::import(&f) {
-                Ok(t) => {
-                    self.templates = crate::templates::list();
-                    self.toast(t!("Imported: {}", "Importada: {}", t.name));
-                }
-                Err(e) => self.toast(t!("Couldn't import: {:#}", "No pude importar: {:#}", e)),
-            }
-        }
-    }
-
     /// Mark a chapter in the running recording.
     pub fn marker(&mut self) {
         if let Some(e) = &self.engine {
