@@ -293,34 +293,53 @@ fn header(app: &mut App, ui: &mut Ui, content: Rect) -> Rect {
 /// editor while building a custom scene) and the Media Board. Wide windows
 /// get two columns; narrow ones stack everything and scroll.
 fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
+    let narrow = area.width() < 1100.0;
     let media_h = 158.0;
+    let audio_fold = app.settings.fold_audio;
+    let cam_fold = app.settings.fold_camera;
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             let w = area.width() - 4.0;
-            // Preview on top: the video at 16:9 plus the control row and stats,
-            // capped so the cards below stay in view.
-            let rows_h = 24.0 + 64.0 + 30.0;
-            let pv_h = ((w - 24.0) * 9.0 / 16.0 + rows_h).min((area.height() * 0.62).max(420.0)).max(330.0).floor();
-            // Live audio and Camera side by side (stacked when narrow), each
-            // only as tall as it needs when folded.
-            let audio_h = if app.settings.fold_audio { FOLDED_H } else { 250.0 };
-            let cam_h = if app.settings.fold_camera { FOLDED_H } else { 400.0 };
-            let side_by_side = w >= 760.0;
-            let cards_h = if side_by_side { audio_h.max(cam_h) } else { audio_h + 16.0 + cam_h };
-            let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + 16.0 + cards_h + 16.0 + media_h), Sense::hover());
-            let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
-            let y2 = preview_card.bottom() + 16.0;
-            let (audio_card, cam_card) = if side_by_side {
+            if narrow {
+                let pv_h = (w * 9.0 / 16.0 + 96.0).max(330.0);
+                let audio_h = if audio_fold { FOLDED_H } else { 240.0 };
+                let side_h = if cam_fold { FOLDED_H } else { 380.0 };
                 let half = ((w - 16.0) / 2.0).floor();
-                (Rect::from_min_size(pos2(all.left(), y2), vec2(half, audio_h)), Rect::from_min_size(pos2(all.left() + half + 16.0, y2), vec2(w - half - 16.0, cam_h)))
+                let stacked = w < 640.0;
+                let cards_h = if stacked { audio_h + 16.0 + side_h } else { audio_h.max(side_h) };
+                let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + cards_h + media_h + 32.0), Sense::hover());
+                let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
+                let y2 = preview_card.bottom() + 16.0;
+                let (audio_card, cam_card) = if stacked {
+                    (Rect::from_min_size(pos2(all.left(), y2), vec2(w, audio_h)), Rect::from_min_size(pos2(all.left(), y2 + audio_h + 16.0), vec2(w, side_h)))
+                } else {
+                    (Rect::from_min_size(pos2(all.left(), y2), vec2(half, audio_h)), Rect::from_min_size(pos2(all.left() + half + 16.0, y2), vec2(half, side_h)))
+                };
+                let media = Rect::from_min_size(pos2(all.left(), y2 + cards_h + 16.0), vec2(w, media_h));
+                preview(app, ui, preview_card);
+                audio(app, ui, audio_card);
+                side_card(app, ui, cam_card);
+                super::media_ui::strip(app, ui, media);
             } else {
-                (Rect::from_min_size(pos2(all.left(), y2), vec2(w, audio_h)), Rect::from_min_size(pos2(all.left(), y2 + audio_h + 16.0), vec2(w, cam_h)))
-            };
-            let media = Rect::from_min_size(pos2(all.left(), y2 + cards_h + 16.0), vec2(w, media_h));
-            preview(app, ui, preview_card);
-            audio(app, ui, audio_card);
-            side_card(app, ui, cam_card);
-            super::media_ui::strip(app, ui, media);
+                let total = area.height().max(660.0);
+                let (all, _) = ui.allocate_exact_size(vec2(w, total), Sense::hover());
+                let top = Rect::from_min_max(all.min, pos2(all.right(), all.bottom() - media_h - 16.0));
+                // The 9:16 preview, when on, widens the preview card by its own
+                // column; the 16:9 picture keeps its size.
+                let vcol = if app.settings.vertical_preview { ((top.height() - 24.0 - 64.0 - 30.0) * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
+                let left_w = ((w * 0.64).floor() + vcol).min(w - 16.0 - 380.0);
+                let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
+                let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
+                let audio_h = if audio_fold { FOLDED_H } else { (right.height() * 0.36).clamp(200.0, 260.0).floor() };
+                let audio_card = Rect::from_min_size(right.min, vec2(right.width(), audio_h));
+                let cam_top = audio_card.bottom() + 16.0;
+                let cam_card = if cam_fold { Rect::from_min_size(pos2(right.left(), cam_top), vec2(right.width(), FOLDED_H)) } else { Rect::from_min_max(pos2(right.left(), cam_top), right.max) };
+                let media = Rect::from_min_max(pos2(all.left(), all.bottom() - media_h), all.max);
+                preview(app, ui, preview_card);
+                audio(app, ui, audio_card);
+                side_card(app, ui, cam_card);
+                super::media_ui::strip(app, ui, media);
+            }
         });
     });
 }
