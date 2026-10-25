@@ -460,10 +460,36 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             .collect();
         let n = pins.len() as f32;
         let custom_box = Rect::from_min_size(pos2(inner.right() - 6.0 - 92.0, cy - 25.0), vec2(92.0, 50.0));
-        let left_edge = pc.x + 24.0 + 20.0;
+        // The studio picker sits just left of its scenes.
+        let combo_w = 170.0;
+        let left_edge = pc.x + 24.0 + 20.0 + combo_w + 10.0;
         let w = (92.0 * n).min(custom_box.left() - 10.0 - left_edge).max(0.0);
         let seg = Rect::from_min_size(pos2(custom_box.left() - 10.0 - w, cy - 25.0), vec2(w, 50.0));
         let show_pins = seg.width() > 60.0;
+        let combo = Rect::from_min_size(pos2(if show_pins { seg.left() } else { custom_box.left() } - 10.0 - combo_w, cy - 15.0), vec2(combo_w, 30.0));
+        if combo.left() > pc.x + 34.0 {
+            let names: Vec<String> = app.settings.studios.iter().map(|s| s.name.clone()).collect();
+            let cur = app.settings.studio;
+            let mut pick = None;
+            ui.scope_builder(UiBuilder::new().max_rect(combo), |ui| {
+                ComboBox::from_id_salt("studio-pick")
+                    .width(combo_w - 4.0)
+                    .selected_text(egui::RichText::new(names.get(cur).cloned().unwrap_or_default()).size(13.0))
+                    .show_ui(ui, |ui| {
+                        for (i, name) in names.iter().enumerate() {
+                            if ui.selectable_label(i == cur, name).clicked() {
+                                pick = Some(i);
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text(l("Studio: the set of scenes on the right. Edit studios on the Templates page.", "Studio: el grupo de escenas a la derecha. Edita los Studios en la página Plantillas."));
+            });
+            if let Some(i) = pick {
+                app.settings.switch_studio(i);
+                let _ = app.settings.save();
+            }
+        }
         {
             p.rect_filled(custom_box, CornerRadius::same(14), Color32::from_rgba_premultiplied(0, 0, 0, 90));
             if show_pins {

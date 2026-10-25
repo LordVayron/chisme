@@ -52,6 +52,11 @@ pub struct Settings {
     pub fold_camera: bool,
     /// Quick-access scenes and templates under the preview, in order.
     pub pinned: Vec<Pin>,
+    /// Studios: named sets of scenes. The active one's scenes are `pinned`
+    /// (kept in step when switching).
+    pub studios: Vec<Studio>,
+    /// The active studio (index into `studios`).
+    pub studio: usize,
     /// Part of the camera's name; None = no camera.
     pub camera: Option<String>,
     pub scene: Scene,
@@ -108,6 +113,14 @@ pub struct Settings {
 pub enum Pin {
     Scene(Scene),
     Template(String),
+}
+
+/// A studio: a name and the scenes shown under the preview when it's on.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Studio {
+    pub name: String,
+    pub scenes: Vec<Pin>,
 }
 
 /// Global shortcuts as combos ("Ctrl+Shift+R"; empty: off). Templates and
@@ -205,6 +218,8 @@ impl Default for Settings {
             fold_audio: false,
             fold_camera: false,
             pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),
+            studios: vec![],
+            studio: 0,
             camera: None,
             scene: Scene::ScreenCam,
             pip_size: pip.size,
@@ -246,6 +261,63 @@ impl Settings {
     pub fn load() -> Settings {
         // Editors like Notepad may add a byte-order mark.
         std::fs::read_to_string(Self::path()).ok().and_then(|s| serde_json::from_str(s.trim_start_matches('\u{feff}')).ok()).unwrap_or_default()
+    }
+
+    /// Create the studios the first time: your current scenes, then
+    /// Podcast, Content / Reels, Tutorial and Gaming / Stream. `templates`
+    /// are the names on disk (some studios use the guest templates).
+    pub fn ensure_studios(&mut self, templates: &[String]) {
+        if !self.studios.is_empty() {
+            self.studio = self.studio.min(self.studios.len() - 1);
+            // The active studio's scenes live in `pinned`.
+            self.studios[self.studio].scenes = self.pinned.clone();
+            return;
+        }
+        use crate::i18n::l;
+        let tpl = |name: &str| templates.iter().any(|t| t == name).then(|| Pin::Template(name.to_string()));
+        let guests: Vec<Pin> = crate::templates::guest_scenes().iter().filter_map(|t| tpl(&t.name)).collect();
+        let presenter = tpl(l("Presenter", "Presentador"));
+        let mut content = vec![Pin::Scene(Scene::Cam), Pin::Scene(Scene::ScreenCam), Pin::Scene(Scene::SideBySide)];
+        content.extend(presenter);
+        self.studios = vec![
+            Studio { name: l("My scenes", "Mis escenas").into(), scenes: self.pinned.clone() },
+            Studio { name: "Podcast".into(), scenes: guests },
+            Studio { name: l("Content / Reels", "Contenido / Reels").into(), scenes: content },
+            Studio { name: "Tutorial".into(), scenes: vec![Pin::Scene(Scene::Screen), Pin::Scene(Scene::ScreenCam), Pin::Scene(Scene::CamScreen)] },
+            Studio { name: "Gaming / Stream".into(), scenes: vec![Pin::Scene(Scene::ScreenCam), Pin::Scene(Scene::Screen), Pin::Scene(Scene::Cam)] },
+        ];
+        self.studio = 0;
+    }
+
+    /// Make studio `i` the active one.
+    pub fn switch_studio(&mut self, i: usize) {
+        if i >= self.studios.len() {
+            return;
+        }
+        if let Some(cur) = self.studios.get_mut(self.studio) {
+            cur.scenes = self.pinned.clone();
+        }
+        self.studio = i;
+        self.pinned = self.studios[i].scenes.clone();
+    }
+
+    /// Add an empty studio and switch to it.
+    pub fn add_studio(&mut self, name: String) {
+        self.studios.push(Studio { name, scenes: vec![] });
+        self.switch_studio(self.studios.len() - 1);
+    }
+
+    /// Delete studio `i` (the last one stays).
+    pub fn remove_studio(&mut self, i: usize) {
+        if self.studios.len() <= 1 || i >= self.studios.len() {
+            return;
+        }
+        if let Some(cur) = self.studios.get_mut(self.studio) {
+            cur.scenes = self.pinned.clone();
+        }
+        self.studios.remove(i);
+        self.studio = if self.studio > i { self.studio - 1 } else { self.studio.min(self.studios.len() - 1) };
+        self.pinned = self.studios[self.studio].scenes.clone();
     }
 
     pub fn save(&self) -> Result<()> {
@@ -369,5 +441,29 @@ mod tests {
     fn output_names() {
         let n = timestamped();
         assert!(n.starts_with("Chisme ") && n.ends_with(".mp4"), "{n}");
+    }
+}
+
+#[cfg(test)]
+mod studio_tests {
+    use super::*;
+
+    #[test]
+    fn studios_keep_their_scenes() {
+        let mut s = Settings::default();
+        s.pinned = vec![Pin::Scene(Scene::Screen)];
+        s.ensure_studios(&[]);
+        assert_eq!(s.studios.len(), 5);
+        assert_eq!(s.studios[0].scenes, vec![Pin::Scene(Scene::Screen)], "your scenes become the first studio");
+        s.switch_studio(3);
+        assert_eq!(s.pinned, s.studios[3].scenes);
+        s.pinned.push(Pin::Scene(Scene::Cam));
+        s.switch_studio(0);
+        assert_eq!(s.studios[3].scenes.last(), Some(&Pin::Scene(Scene::Cam)), "edits stay with their studio");
+        s.add_studio("New".into());
+        assert_eq!((s.studio, s.pinned.len()), (5, 0));
+        s.remove_studio(5);
+        assert_eq!(s.studios.len(), 5);
+        assert!(s.studio < 5);
     }
 }

@@ -1,5 +1,5 @@
-//! The "Plantillas" page: saved layouts as cards with a drawn thumbnail,
-//! apply / export / delete, save the current one, import a .chisme.
+//! The Templates page: studios (named sets of scenes), and saved layouts as
+//! cards with a drawn thumbnail: apply, add to the studio, delete.
 
 use eframe::egui::{self, Align2, Color32, CornerRadius, CursorIcon, Id, Painter, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2};
 
@@ -60,7 +60,7 @@ pub fn thumbnail(p: &Painter, frame: Rect, layout: &Layout, brand: &Brand) {
 }
 
 pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
-    // Top bar: save the current layout, import.
+    // Top bar: save the current layout, create a studio.
     let bar = Rect::from_min_size(area.min, vec2(area.width(), 64.0));
     theme::card(ui.painter(), bar);
     ui.scope_builder(UiBuilder::new().max_rect(bar.shrink2(vec2(20.0, 14.0))), |ui| {
@@ -73,8 +73,10 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                 app.save_dialog = Some(super::SaveDialog { name, group: String::new() });
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(l("Import .chisme…", "Importar .chisme…")).clicked() {
-                    app.import_template();
+                if ui.add(egui::Button::new(egui::RichText::new(l("+  Create Studio", "+  Crear Studio")).strong().color(Color32::BLACK)).fill(Color32::WHITE)).clicked() {
+                    let n = app.settings.studios.len() + 1;
+                    app.settings.add_studio(t!("Studio {}", "Studio {}", n));
+                    let _ = app.settings.save();
                 }
                 if !app.settings.hotkeys.templates.is_empty() {
                     ui.label(egui::RichText::new(t!("{}+1…9 switches template, even while recording", "{}+1…9 cambia de plantilla, incluso grabando", app.settings.hotkeys.templates)).color(FAINT).size(12.0));
@@ -83,8 +85,8 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
         });
     });
 
-    let quick = Rect::from_min_size(pos2(area.left(), bar.bottom() + 16.0), vec2(area.width(), 128.0));
-    quick_access(app, ui, quick);
+    let quick = Rect::from_min_size(pos2(area.left(), bar.bottom() + 16.0), vec2(area.width(), 214.0));
+    studios_card(app, ui, quick);
 
     // Cards: 4 per row.
     let grid = Rect::from_min_max(pos2(area.left(), quick.bottom() + 16.0), area.max);
@@ -141,15 +143,15 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                 }
                 let by = ty + 30.0;
                 let apply = Rect::from_min_size(pos2(card.left() + 14.0, by - 15.0), vec2(90.0, 30.0));
-                let export = Rect::from_min_size(pos2(apply.right() + 8.0, by - 15.0), vec2(86.0, 30.0));
                 let delete = Rect::from_min_size(pos2(card.right() - 14.0 - 30.0, by - 15.0), vec2(30.0, 30.0));
                 let pin_r = Rect::from_min_size(pos2(delete.left() - 38.0, by - 15.0), vec2(30.0, 30.0));
                 let pin = crate::settings::Pin::Template(t.name.clone());
                 let pinned = app.settings.pinned.contains(&pin);
+                let studio = app.settings.studios.get(app.settings.studio).map(|s| s.name.clone()).unwrap_or_default();
                 let pr = ui.interact(pin_r, Id::new(("tpl-pin", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if pinned {
-                    l("Unpin from under the preview", "Quitar de debajo del preview")
+                    t!("Remove from the studio {}", "Quitar del Studio {}", studio)
                 } else {
-                    l("Pin under the preview for quick access", "Fijar debajo del preview para acceso rápido")
+                    t!("Add to the studio {}", "Agregar al Studio {}", studio)
                 });
                 ui.painter().rect_filled(pin_r, CornerRadius::same(15), if pinned { Color32::from_rgba_premultiplied(70, 34, 0, 110) } else if pr.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 90) } else { Color32::from_rgba_premultiplied(40, 40, 44, 80) });
                 pin_icon(ui.painter(), pin_r.center(), if pinned { ORANGE } else { TEXT }, pinned);
@@ -158,9 +160,6 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                 }
                 if button(ui, apply, ("apply", i), if active { l("Active", "Activa") } else { l("Apply", "Aplicar") }, !active) {
                     app.apply_template(t);
-                }
-                if button(ui, export, ("export", i), l("Export", "Exportar"), false) {
-                    app.export_template(t);
                 }
                 if button(ui, delete, ("delete", i), "🗑", false) {
                     app.delete_template(&t.name);
@@ -194,26 +193,73 @@ fn toggle_pin(app: &mut App, pin: crate::settings::Pin) {
     let _ = app.settings.save();
 }
 
-/// What sits under the preview, in order: move items left and right,
-/// unpin them, and pin the built-in scenes (templates pin from their cards).
-fn quick_access(app: &mut App, ui: &mut Ui, rect: Rect) {
+/// Studios: pick one (it becomes the active one), rename or delete it, and
+/// edit its scenes in order (templates join from their cards).
+fn studios_card(app: &mut App, ui: &mut Ui, rect: Rect) {
     use crate::compose::Scene;
     use crate::settings::Pin;
     let p = ui.painter().clone();
     theme::card(&p, rect);
-    p.text(rect.min + vec2(22.0, 18.0), Align2::LEFT_TOP, l("Quick access under the preview", "Acceso rápido debajo del preview"), medium(14.0), TEXT);
+    p.text(rect.min + vec2(22.0, 18.0), Align2::LEFT_TOP, l("Studios", "Studios"), medium(14.0), TEXT);
     p.text(
         pos2(rect.right() - 22.0, rect.top() + 20.0),
         Align2::RIGHT_TOP,
-        l("Pin scenes here and templates from their cards. Arrows change the order.", "Fija escenas aquí y plantillas desde sus tarjetas. Las flechas cambian el orden."),
+        l("A studio is a set of scenes for one kind of show. Its scenes appear under the preview.", "Un Studio es un grupo de escenas para un tipo de show. Sus escenas aparecen debajo del preview."),
         body(12.0),
         FAINT,
     );
+    // The studios, as pills: click to make one active.
+    let mut x = rect.left() + 22.0;
+    let names: Vec<String> = app.settings.studios.iter().map(|s| s.name.clone()).collect();
+    let mut pick = None;
+    for (i, name) in names.iter().enumerate() {
+        let w = 32.0 + ui.painter().layout_no_wrap(name.clone(), medium(12.5), TEXT).size().x;
+        if x + w > rect.right() - 22.0 {
+            break;
+        }
+        let b = Rect::from_min_size(pos2(x, rect.top() + 48.0), vec2(w, 30.0));
+        let sel = i == app.settings.studio;
+        let r = ui.interact(b, Id::new(("studio-pill", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+        p.rect_filled(b, CornerRadius::same(15), if sel { Color32::WHITE } else if r.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 110) } else { Color32::from_rgba_premultiplied(40, 40, 44, 100) });
+        p.text(b.center(), Align2::CENTER_CENTER, name, medium(12.5), if sel { Color32::BLACK } else { TEXT });
+        if r.clicked() {
+            pick = Some(i);
+        }
+        x += w + 8.0;
+    }
+    if let Some(i) = pick {
+        app.settings.switch_studio(i);
+        let _ = app.settings.save();
+    }
+    // Rename and delete the active one.
+    let row = Rect::from_min_size(pos2(rect.left() + 22.0, rect.top() + 88.0), vec2(rect.width() - 44.0, 30.0));
+    let mut delete = false;
+    ui.scope_builder(UiBuilder::new().max_rect(row), |ui| {
+        ui.horizontal_centered(|ui| {
+            ui.label(egui::RichText::new(l("Name", "Nombre")).color(MUTED).size(12.5));
+            let cur = app.settings.studio;
+            if let Some(s) = app.settings.studios.get_mut(cur)
+                && ui.add(egui::TextEdit::singleline(&mut s.name).desired_width(220.0)).lost_focus()
+            {
+                let _ = app.settings.save();
+            }
+            if app.settings.studios.len() > 1 && ui.button(l("Delete studio", "Borrar Studio")).clicked() {
+                delete = true;
+            }
+        });
+    });
+    if delete {
+        app.settings.remove_studio(app.settings.studio);
+        let _ = app.settings.save();
+    }
     let brand = app.settings.brand.clone();
     let pins = app.settings.pinned.clone();
     let mut action: Option<(usize, i32)> = None; // (index, -1 left / +1 right / 0 unpin)
     let mut x = rect.left() + 22.0;
-    let y = rect.top() + 50.0;
+    let y = rect.top() + 130.0;
+    if pins.is_empty() {
+        p.text(pos2(x, y + 17.0), Align2::LEFT_CENTER, l("No scenes yet: add some below, or from a template's card.", "Aún no tiene escenas: agrega abajo, o desde la tarjeta de una plantilla."), body(12.5), MUTED);
+    }
     for (i, pin) in pins.iter().enumerate() {
         let (label, tw) = match pin {
             Pin::Scene(s) => (s.label().to_string(), 22.0),
@@ -260,7 +306,7 @@ fn quick_access(app: &mut App, ui: &mut Ui, rect: Rect) {
     }
     // The built-in scenes not pinned yet.
     let mut x = rect.left() + 22.0;
-    let y2 = rect.top() + 94.0;
+    let y2 = rect.top() + 176.0;
     p.text(pos2(x, y2 + 11.0), Align2::LEFT_CENTER, l("Add a scene:", "Agregar escena:"), body(12.0), MUTED);
     x += 100.0;
     for s in Scene::ALL {
