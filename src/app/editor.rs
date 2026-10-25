@@ -220,11 +220,13 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
             ui.horizontal_wrapped(|ui| {
                 if ui.button(tr("+ Screen", "+ Pantalla")).clicked() {
                     layout.layers.push(Layer { source: Source::Screen, rect: [0.1, 0.1, 0.5, 0.5], fill: false, ..Default::default() });
+                    app.edit_v = false;
                     app.sel_layer = Some(layout.layers.len() - 1);
                     changed = true;
                 }
                 if ui.add_enabled(has_cam, egui::Button::new(tr("+ Camera", "+ Cámara"))).on_disabled_hover_text(tr("Pick a camera in Settings", "Elige una cámara en Ajustes")).clicked() {
                     layout.layers.push(layout::new_camera(&pip, ow, oh, cam_aspect));
+                    app.edit_v = false;
                     app.sel_layer = Some(layout.layers.len() - 1);
                     changed = true;
                 }
@@ -233,17 +235,20 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                 {
                     let aspect = image::image_dimensions(&path).map_or(1.0, |(w, h)| w as f64 / h.max(1) as f64);
                     layout.layers.push(Layer::image(&path.to_string_lossy(), aspect, ow / oh));
+                    app.edit_v = false;
                     app.sel_layer = Some(layout.layers.len() - 1);
                     changed = true;
                 }
                 if ui.button(tr("+ Guest", "+ Invitado")).on_hover_text(tr("A guest from the Guests page, once on stage", "Un invitado de la página Invitados, cuando está en vivo")).clicked() {
                     let seat = layout.layers.iter().filter(|l| l.source == Source::Guest).count().min(7) as u8;
                     layout.layers.push(Layer { source: Source::Guest, guest: seat, rect: [0.55, 0.3, 0.4, 0.4], fill: true, roundness: 0.06, ..Default::default() });
+                    app.edit_v = false;
                     app.sel_layer = Some(layout.layers.len() - 1);
                     changed = true;
                 }
                 if ui.button(tr("+ Text", "+ Texto")).on_hover_text(tr("Lower third: name and title", "Lower third: nombre y título")).clicked() {
                     layout.layers.push(Layer::lower_third(tr("Your name", "Tu nombre"), tr("Your title", "Tu título"), 1));
+                    app.edit_v = false;
                     app.sel_layer = Some(layout.layers.len() - 1);
                     changed = true;
                 }
@@ -302,7 +307,7 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
             let n = layout.layers.len();
             let mut action: Option<(usize, i32)> = None; // (layer, -1 down / +1 up / 0 delete)
             for i in (0..n).rev() {
-                let sel = app.sel_layer == Some(i);
+                let sel = app.sel_layer == Some(i) && !app.edit_v;
                 let l = &mut layout.layers[i];
                 let frame = egui::Frame::new()
                     .fill(if sel { Color32::from_rgba_premultiplied(70, 34, 0, 90) } else { Color32::from_rgba_premultiplied(30, 30, 33, 45) })
@@ -322,7 +327,8 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                         }
                         let label = ui.add(egui::Label::new(egui::RichText::new(name).size(13.0).color(if l.visible { TEXT } else { FAINT })).sense(Sense::click()));
                         if label.on_hover_cursor(CursorIcon::PointingHand).clicked() {
-                            app.sel_layer = Some(i);
+                            app.edit_v = false;
+                    app.sel_layer = Some(i);
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if icon_button(ui, Icon::Remove, tr("Delete layer", "Eliminar capa")) {
@@ -346,18 +352,20 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                     }
                     1 if i + 1 < n => {
                         layout.layers.swap(i, i + 1);
-                        app.sel_layer = Some(i + 1);
+                        app.edit_v = false;
+                    app.sel_layer = Some(i + 1);
                     }
                     -1 if i > 0 => {
                         layout.layers.swap(i, i - 1);
-                        app.sel_layer = Some(i - 1);
+                        app.edit_v = false;
+                    app.sel_layer = Some(i - 1);
                     }
                     _ => {}
                 }
                 changed = true;
             }
             // The selected layer's properties.
-            if let Some(l) = app.sel_layer.and_then(|i| layout.layers.get_mut(i)) {
+            if let Some(l) = app.sel_layer.filter(|_| !app.edit_v).and_then(|i| layout.layers.get_mut(i)) {
                 ui.add_space(6.0);
                 ui.separator();
                 match l.source {

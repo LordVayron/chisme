@@ -143,6 +143,9 @@ pub struct LiveState {
     pub vertical_preview: bool,
     /// What Record writes.
     pub output: Output,
+    /// How scenes change, and a counter the app bumps on each change.
+    pub transition: crate::win::transition::Transition,
+    pub switch: u64,
 }
 
 pub enum Cmd {
@@ -600,6 +603,8 @@ struct Pipeline {
     /// The webcam with its virtual background (what the compositor draws
     /// as the camera).
     matte: Option<Matte>,
+    /// Scene transitions on this canvas.
+    blend: crate::win::transition::Blend,
 }
 
 /// The GPU resources to compose a `src`-sized screen into an `out` picture.
@@ -631,6 +636,7 @@ fn new_pipeline(gpu: &Gpu, src: (u32, u32), out: (u32, u32), fps: u32, cam: Opti
         nv12: Blitter::new(gpu, out, out, fps, true)?,
         ring: Ring::new(gpu, out, 12)?,
         overlay: Overlay::new(gpu, &canvas, out, cam)?,
+        blend: crate::win::transition::Blend::new(gpu, &canvas, out)?,
         matte,
         layer_tex: vec![],
         pictures: vec![],
@@ -712,6 +718,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
     let out_v = (1080u32, 1920u32);
     let spec_v = VideoSpec { width: out_v.0, height: out_v.1, fps: cfg.fps, codec: cfg.codec, bitrate: default_bitrate(out_v.0, out_v.1, cfg.fps, cfg.codec) as u32 };
     let mut pipe_v: Option<Pipeline> = None;
+    let mut last_switch = shared.live.lock().unwrap().switch;
 
     // Audio sources. A missing device is a warning, not a failure.
     let (tx, audio_rx) = channel::<Packet>();
@@ -1167,7 +1174,16 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     (m.seq != vbg_seq).then(|| (m.seq, m.data.clone()))
                 });
                 let scene = if cam.is_some() { live.scene } else { Scene::Screen };
+                let switched = live.switch != last_switch;
+                last_switch = live.switch;
                 let (tex, tex_v) = gpu.locked(|| -> Result<(Option<ID3D11Texture2D>, Option<ID3D11Texture2D>)> {
+                    // A new scene: keep the last frame of the old one to blend from.
+                    if switched {
+                        pipe.blend.start(&pipe.canvas, t, live.transition);
+                        if let Some(pv) = pipe_v.as_mut() {
+                            pv.blend.start(&pv.canvas, t, live.transition);
+                        }
+                    }
                     // The camera with its virtual background, or as it is.
                     if let (Some(m), Some(c), true) = (&mut pipe.matte, &cam, cam_ready) {
                         if let Some((seq, data)) = &new_mask {
@@ -1226,6 +1242,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     if !cfg.test_pattern {
                         draw_media(&gpu, &mut pipe, &players, media_image.as_deref(), out)?;
                     }
+                    pipe.blend.apply(&pipe.canvas, t);
                     let main_v = rec.as_ref().is_some_and(|r| r.main_vertical);
                     let tex = match rec_slot {
                         Some(_) if !main_v => {
@@ -1245,6 +1262,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                             render_layout(&gpu, pv, &cap, info.content, cam.as_ref().filter(|_| cam_ready), &live.vertical, &live.brand, out_v)?;
                             draw_media(&gpu, pv, &players, media_image.as_deref(), out_v)?;
                         }
+                        pv.blend.apply(&pv.canvas, t);
                         if rec_slot.is_some() && rec_v {
                             let t = pv.ring.next();
                             pv.nv12.blit(&pv.canvas, out_v, &t, (0, 0, out_v.0, out_v.1))?;

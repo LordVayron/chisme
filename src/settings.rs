@@ -78,6 +78,11 @@ pub struct Settings {
     pub horizontal_preview: bool,
     /// What Record writes: horizontal, vertical or both.
     pub output: crate::engine::Output,
+    /// How one scene turns into the next.
+    pub transition: crate::win::transition::Transition,
+    /// Bumped on every scene change (not saved).
+    #[serde(skip)]
+    pub switch: u64,
     /// Logo, colors and font.
     pub brand: Brand,
     /// The template last applied (highlighted in the app).
@@ -243,6 +248,8 @@ impl Default for Settings {
             vertical_preview: false,
             horizontal_preview: true,
             output: crate::engine::Output::Horizontal,
+            transition: Default::default(),
+            switch: 0,
             brand: Brand::default(),
             template: None,
             stream_urls: vec![],
@@ -401,6 +408,8 @@ impl Settings {
             vertical: self.vertical_layout(),
             vertical_preview: self.vertical_preview,
             output: self.output,
+            transition: self.transition,
+            switch: self.switch,
         }
     }
 
@@ -409,7 +418,9 @@ impl Settings {
         if let Some(v) = &self.layout_v {
             return v.clone();
         }
-        let h = self.layout.clone().unwrap_or_else(|| Layout::from_scene(self.scene, &self.pip(), 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0));
+        // Without a camera the fixed scenes show the screen only (like 16:9).
+        let scene = if self.camera.is_some() { self.scene } else { Scene::Screen };
+        let h = self.layout.clone().unwrap_or_else(|| Layout::from_scene(scene, &self.pip(), 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0));
         h.to_vertical()
     }
 

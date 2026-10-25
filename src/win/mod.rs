@@ -15,6 +15,7 @@ pub mod matte;
 pub mod h264;
 pub mod overlay;
 pub mod sources;
+pub mod transition;
 
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 
