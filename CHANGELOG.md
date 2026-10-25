@@ -5,7 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-10-25
+
 ### Fixed
+- Clicks land on the button under the pointer. On some PCs, hiding Chisme from screen capture drew the window offset from where clicks land, so a nearby button reacted instead. Chisme now hides itself only while recording or streaming.
 - The Media volume also sets what you hear. With system audio on, Media Board sounds reach the recording through your speakers, so the slider did nothing there; now it changes the sound itself, and what you hear is what goes out.
 
 ## [0.4.3] - 2026-10-24
@@ -116,7 +119,8 @@ and versions follow [Semantic Versioning](https://semver.org).
   TikTok, X and RTMP, a replay buffer, Whisper subtitles, a tray icon, global hotkeys, a command
   line and the installer.
 
-[Unreleased]: https://github.com/LordVayron/chisme/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/LordVayron/chisme/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/LordVayron/chisme/releases/tag/v0.4.4
 [0.4.3]: https://github.com/LordVayron/chisme/releases/tag/v0.4.3
 [0.4.2]: https://github.com/LordVayron/chisme/releases/tag/v0.4.2
 [0.4.1]: https://github.com/LordVayron/chisme/releases/tag/v0.4.1
