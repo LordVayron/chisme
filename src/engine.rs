@@ -102,6 +102,25 @@ pub enum TargetSpec {
 }
 
 /// Settings that apply instantly, even while recording.
+/// What Record writes: the 16:9 video, the 9:16 one, or both at once.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Output {
+    #[default]
+    Horizontal,
+    Vertical,
+    Both,
+}
+
+impl Output {
+    pub fn vertical(self) -> bool {
+        self != Output::Horizontal
+    }
+    pub fn horizontal(self) -> bool {
+        self != Output::Vertical
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct LiveState {
     pub scene: Scene,
@@ -118,6 +137,12 @@ pub struct LiveState {
     pub brand: Brand,
     /// Virtual background behind the webcam.
     pub vbg: crate::vbg::VirtualBackground,
+    /// The 9:16 picture (for vertical recording, 9:16 streams and its preview).
+    pub vertical: Layout,
+    /// Draw the 9:16 picture even when nothing records it (its preview is on).
+    pub vertical_preview: bool,
+    /// What Record writes.
+    pub output: Output,
 }
 
 pub enum Cmd {
@@ -230,6 +255,8 @@ pub struct Shared {
     pub status: Mutex<Status>,
     pub live: Mutex<LiveState>,
     pub preview: Mutex<Preview>,
+    /// The 9:16 picture's preview (while it is drawn).
+    pub preview_v: Mutex<Preview>,
     /// Produce preview frames (off while the window is hidden).
     pub preview_on: AtomicBool,
 }
@@ -245,7 +272,7 @@ const PREVIEW_MAX: (u32, u32) = (1280, 720);
 
 impl Engine {
     pub fn start(cfg: Config, live: LiveState) -> Engine {
-        let shared = Arc::new(Shared { status: Mutex::new(Status::default()), live: Mutex::new(live), preview: Mutex::new(Preview::default()), preview_on: AtomicBool::new(true) });
+        let shared = Arc::new(Shared { status: Mutex::new(Status::default()), live: Mutex::new(live), preview: Mutex::new(Preview::default()), preview_v: Mutex::new(Preview::default()), preview_on: AtomicBool::new(true) });
         let (tx, rx) = channel();
         let s2 = shared.clone();
         let thread = std::thread::Builder::new()
@@ -508,6 +535,10 @@ fn load_picture(path: &str) -> Option<(u32, u32, Vec<u8>)> {
 struct Rec {
     enc: Encoder,
     path: PathBuf,
+    /// `enc` takes the 9:16 picture (vertical only).
+    main_vertical: bool,
+    /// The second, 9:16 file when recording both.
+    enc_v: Option<(Encoder, PathBuf)>,
     /// Engine grid slot where it started, and its host time.
     start_slot: i64,
     t0: f64,
@@ -535,6 +566,9 @@ impl Rec {
                 let i1 = (((to - a) / fps * RATE).round() as usize).clamp(i0, frames.len());
                 let at = (from - off as f64) / fps;
                 self.enc.write_audio(track, at, &frames[i0..i1])?;
+                if let Some((e, _)) = &mut self.enc_v {
+                    e.write_audio(track, at, &frames[i0..i1])?;
+                }
                 if track == 0 {
                     self.audio_secs = self.audio_secs.max(at + (i1 - i0) as f64 / RATE);
                 }
@@ -566,6 +600,58 @@ struct Pipeline {
     /// The webcam with its virtual background (what the compositor draws
     /// as the camera).
     matte: Option<Matte>,
+}
+
+/// The GPU resources to compose a `src`-sized screen into an `out` picture.
+/// `cam`: the camera texture the overlay draws (with its background).
+fn new_pipeline(gpu: &Gpu, src: (u32, u32), out: (u32, u32), fps: u32, cam: Option<&ID3D11Texture2D>, matte: Option<Matte>) -> Result<Pipeline> {
+    let (_, _, pw, ph) = fit(out, PREVIEW_MAX);
+    let preview_size = (pw.min(out.0).max(2) & !1, ph.min(out.1).max(2) & !1);
+    let canvas = gpu.texture(out.0, out.1, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE)?;
+    let preview_tex = gpu.texture(preview_size.0, preview_size.1, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_RENDER_TARGET)?;
+    let staging = {
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: preview_size.0,
+            Height: preview_size.1,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_STAGING,
+            BindFlags: 0,
+            CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+            MiscFlags: 0,
+        };
+        let mut t = None;
+        unsafe { gpu.device.CreateTexture2D(&desc, None, Some(&mut t))? };
+        t.context("staging texture")?
+    };
+    Ok(Pipeline {
+        scale: Blitter::new(gpu, src, out, fps, false)?,
+        nv12: Blitter::new(gpu, out, out, fps, true)?,
+        ring: Ring::new(gpu, out, 12)?,
+        overlay: Overlay::new(gpu, &canvas, out, cam)?,
+        matte,
+        layer_tex: vec![],
+        pictures: vec![],
+        guest_tex: vec![],
+        preview_blit: Blitter::new(gpu, out, preview_size, 30, false)?,
+        canvas_rtv: {
+            let mut v = None;
+            unsafe { gpu.device.CreateRenderTargetView(&canvas, None, Some(&mut v))? };
+            v.context("canvas view")?
+        },
+        canvas,
+        preview_tex,
+        staging,
+        preview_size,
+    })
+}
+
+/// `video.mp4` → `video vertical.mp4`.
+pub fn vertical_path(p: &std::path::Path) -> PathBuf {
+    let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    p.with_file_name(format!("{stem} vertical.mp4"))
 }
 
 fn run(cfg: Config, shared: &Shared, rx: Receiver<Cmd>) -> Result<()> {
@@ -610,27 +696,6 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
         None => None,
     };
 
-    let (_, _, pw, ph) = fit(out, PREVIEW_MAX);
-    let preview_size = (pw.min(out.0).max(2) & !1, ph.min(out.1).max(2) & !1);
-    let canvas = gpu.texture(out.0, out.1, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE)?;
-    let preview_tex = gpu.texture(preview_size.0, preview_size.1, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_RENDER_TARGET)?;
-    let staging = {
-        let desc = D3D11_TEXTURE2D_DESC {
-            Width: preview_size.0,
-            Height: preview_size.1,
-            MipLevels: 1,
-            ArraySize: 1,
-            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-            SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-            Usage: D3D11_USAGE_STAGING,
-            BindFlags: 0,
-            CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
-            MiscFlags: 0,
-        };
-        let mut t = None;
-        unsafe { gpu.device.CreateTexture2D(&desc, None, Some(&mut t))? };
-        t.context("staging texture")?
-    };
     let matte = match &cam {
         Some(c) => match Matte::new(&gpu, &c.latest, c.size, cfg.fps) {
             Ok(m) => Some(m),
@@ -641,26 +706,12 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
         },
         None => None,
     };
-    let mut pipe = Pipeline {
-        scale: Blitter::new(&gpu, cap.size, out, cfg.fps, false)?,
-        nv12: Blitter::new(&gpu, out, out, cfg.fps, true)?,
-        ring: Ring::new(&gpu, out, 12)?,
-        overlay: Overlay::new(&gpu, &canvas, out, matte.as_ref().map(|m| &m.out).or(cam.as_ref().map(|c| &c.latest)))?,
-        matte,
-        layer_tex: vec![],
-        pictures: vec![],
-        guest_tex: vec![],
-        preview_blit: Blitter::new(&gpu, out, preview_size, 30, false)?,
-        canvas_rtv: {
-            let mut v = None;
-            unsafe { gpu.device.CreateRenderTargetView(&canvas, None, Some(&mut v))? };
-            v.context("canvas view")?
-        },
-        canvas,
-        preview_tex,
-        staging,
-        preview_size,
-    };
+    let cam_tex = matte.as_ref().map(|m| m.out.clone()).or(cam.as_ref().map(|c| c.latest.clone()));
+    let mut pipe = new_pipeline(&gpu, cap.size, out, cfg.fps, cam_tex.as_ref(), matte)?;
+    // The 9:16 picture: made the first time something needs it.
+    let out_v = (1080u32, 1920u32);
+    let spec_v = VideoSpec { width: out_v.0, height: out_v.1, fps: cfg.fps, codec: cfg.codec, bitrate: default_bitrate(out_v.0, out_v.1, cfg.fps, cfg.codec) as u32 };
+    let mut pipe_v: Option<Pipeline> = None;
 
     // Audio sources. A missing device is a warning, not a failure.
     let (tx, audio_rx) = channel::<Packet>();
@@ -765,9 +816,13 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
         let end = rec.t0 + (end_slot - rec.start_slot) as f64 * period;
         let audio = rec.write_audio(fps, end, Some((end_slot - rec.start_slot) as f64));
         rec.stats.audio_secs = rec.audio_secs;
-        let Rec { enc, path, mut stats, markers, .. } = rec;
+        let Rec { enc, path, mut stats, markers, enc_v, .. } = rec;
         let done = enc.finish();
         let _ = crate::chapters::save(&path, &markers);
+        if let Some((e, p)) = enc_v {
+            e.finish()?;
+            let _ = crate::chapters::save(&p, &markers);
+        }
         stats.bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         let mut st = shared.status.lock().unwrap();
         st.recording = false;
@@ -800,12 +855,22 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                         deferred = Some(Cmd::Record { path, duration });
                     }
                     Cmd::Record { path, duration } if rec.is_none() => {
-                        let enc = Encoder::open(&gpu, &path, &spec, tracks.len()).with_context(|| format!("can't record to {}", path.display()))?;
+                        let output = shared.live.lock().unwrap().output;
+                        let main_vertical = output == Output::Vertical;
+                        let enc = Encoder::open(&gpu, &path, if main_vertical { &spec_v } else { &spec }, tracks.len()).with_context(|| format!("can't record to {}", path.display()))?;
+                        let enc_v = if output == Output::Both {
+                            let pv = vertical_path(&path);
+                            Some((Encoder::open(&gpu, &pv, &spec_v, tracks.len()).with_context(|| format!("can't record to {}", pv.display()))?, pv))
+                        } else {
+                            None
+                        };
                         let gains = shared.live.lock().unwrap().gain_db;
                         let rt0 = t0 + slot as f64 * period;
                         rec = Some(Rec {
                             enc,
                             path: path.clone(),
+                            main_vertical,
+                            enc_v,
                             start_slot: slot,
                             t0: rt0,
                             pauses: Pauses::default(),
@@ -850,7 +915,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     },
                     Cmd::StartStream(spec) => {
                         next_live += 1;
-                        match LiveOut::stream(&gpu, next_live, out, cfg.fps, &spec) {
+                        match LiveOut::stream(&gpu, next_live, if spec.vertical { out_v } else { out }, cfg.fps, &spec) {
                             Ok(o) => lives.push(o),
                             Err(e) => notify(crate::live::redact(&format!("{}: {e:#}", spec.platform.label()), &spec.key)),
                         }
@@ -1058,6 +1123,16 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
             }
             let want_preview = (shared.preview_on.load(Ordering::Relaxed) || to_guests) && slot % preview_every == 0;
             let mut live_failed: Vec<(u64, String)> = vec![];
+            // The 9:16 picture, when something needs it.
+            let rec_v = rec.as_ref().is_some_and(|r| r.main_vertical || r.enc_v.is_some());
+            let need_v = live.vertical_preview || rec_v || lives.iter().any(|o| o.vertical);
+            if need_v && pipe_v.is_none() {
+                let cam_tex = pipe.matte.as_ref().map(|m| m.out.clone()).or(cam.as_ref().map(|c| c.latest.clone()));
+                match new_pipeline(&gpu, cap.size, out_v, cfg.fps, cam_tex.as_ref(), None) {
+                    Ok(p) => pipe_v = Some(p),
+                    Err(e) => notify(crate::t!("Vertical video: {:#}", "Video vertical: {:#}", e)),
+                }
+            }
             if rec_slot.is_some() || want_preview || !lives.is_empty() {
                 let info = cap.info();
                 let fresh = info.seq != last_seq;
@@ -1092,7 +1167,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     (m.seq != vbg_seq).then(|| (m.seq, m.data.clone()))
                 });
                 let scene = if cam.is_some() { live.scene } else { Scene::Screen };
-                let tex = gpu.locked(|| -> Result<Option<ID3D11Texture2D>> {
+                let (tex, tex_v) = gpu.locked(|| -> Result<(Option<ID3D11Texture2D>, Option<ID3D11Texture2D>)> {
                     // The camera with its virtual background, or as it is.
                     if let (Some(m), Some(c), true) = (&mut pipe.matte, &cam, cam_ready) {
                         if let Some((seq, data)) = &new_mask {
@@ -1151,31 +1226,62 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     if !cfg.test_pattern {
                         draw_media(&gpu, &mut pipe, &players, media_image.as_deref(), out)?;
                     }
+                    let main_v = rec.as_ref().is_some_and(|r| r.main_vertical);
                     let tex = match rec_slot {
-                        Some(_) => {
+                        Some(_) if !main_v => {
                             let t = pipe.ring.next();
                             pipe.nv12.blit(&pipe.canvas, out, &t, (0, 0, out.0, out.1))?;
                             Some(t)
                         }
-                        None => None,
+                        _ => None,
                     };
+                    let mut tex_v = None;
+                    if need_v && let Some(pv) = pipe_v.as_mut() {
+                        if cfg.test_pattern {
+                            let mid = cfg.fps as i64 / 2;
+                            let v = if (mid..mid + 3).contains(&(slot % cfg.fps as i64)) { 1.0 } else { 0.08 };
+                            pv.overlay.clear_to([v, v, v]);
+                        } else {
+                            render_layout(&gpu, pv, &cap, info.content, cam.as_ref().filter(|_| cam_ready), &live.vertical, &live.brand, out_v)?;
+                            draw_media(&gpu, pv, &players, media_image.as_deref(), out_v)?;
+                        }
+                        if rec_slot.is_some() && rec_v {
+                            let t = pv.ring.next();
+                            pv.nv12.blit(&pv.canvas, out_v, &t, (0, 0, out_v.0, out_v.1))?;
+                            tex_v = Some(t);
+                        }
+                        if want_preview && live.vertical_preview {
+                            let ps = pv.preview_size;
+                            pv.preview_blit.blit(&pv.canvas, out_v, &pv.preview_tex, (0, 0, ps.0, ps.1))?;
+                            read_preview(&gpu, pv, shared, true)?;
+                        }
+                    }
                     if want_preview {
                         let ps = pipe.preview_size;
                         pipe.preview_blit.blit(&pipe.canvas, out, &pipe.preview_tex, (0, 0, ps.0, ps.1))?;
-                        read_preview(&gpu, &pipe, shared)?;
+                        read_preview(&gpu, &pipe, shared, false)?;
                     }
                     for o in lives.iter_mut() {
-                        if let Err(e) = o.frame(&pipe.canvas, slot, due) {
+                        let canvas = if o.vertical { pipe_v.as_ref().map(|p| &p.canvas) } else { Some(&pipe.canvas) };
+                        if let Some(c) = canvas
+                            && let Err(e) = o.frame(c, slot, due)
+                        {
                             live_failed.push((o.id, format!("{}: {e:#}", o.name)));
                         }
                     }
-                    Ok(tex)
+                    Ok((tex, tex_v))
                 })?;
-                if let (Some(r), Some(idx), Some(tex)) = (&mut rec, rec_slot, tex) {
-                    r.enc.write(&tex, idx)?;
-                    r.stats.frames_out += 1;
-                    if !fresh {
-                        r.stats.dups += 1;
+                if let (Some(r), Some(idx)) = (&mut rec, rec_slot) {
+                    let main = if r.main_vertical { tex_v.clone() } else { tex };
+                    if let Some(t) = main {
+                        r.enc.write(&t, idx)?;
+                        r.stats.frames_out += 1;
+                        if !fresh {
+                            r.stats.dups += 1;
+                        }
+                    }
+                    if let (Some((e, _)), Some(t)) = (&mut r.enc_v, &tex_v) {
+                        e.write(t, idx)?;
                     }
                 }
             }
@@ -1420,13 +1526,13 @@ fn place_exact(r: [f64; 4]) -> (u32, u32, u32, u32) {
 }
 
 /// Copy the preview texture to the CPU as RGBA.
-fn read_preview(gpu: &Gpu, pipe: &Pipeline, shared: &Shared) -> Result<()> {
+fn read_preview(gpu: &Gpu, pipe: &Pipeline, shared: &Shared, vertical: bool) -> Result<()> {
     let (w, h) = pipe.preview_size;
     unsafe {
         gpu.context.CopyResource(&pipe.staging, &pipe.preview_tex);
         let mut m = D3D11_MAPPED_SUBRESOURCE::default();
         gpu.context.Map(&pipe.staging, 0, D3D11_MAP_READ, 0, Some(&mut m))?;
-        let mut p = shared.preview.lock().unwrap();
+        let mut p = if vertical { shared.preview_v.lock().unwrap() } else { shared.preview.lock().unwrap() };
         p.size = (w, h);
         p.rgba.resize((w * h * 4) as usize, 0);
         for y in 0..h as usize {
@@ -1438,7 +1544,7 @@ fn read_preview(gpu: &Gpu, pipe: &Pipeline, shared: &Shared) -> Result<()> {
         }
         p.seq += 1;
         // Guests watch the program.
-        if crate::guests::outgoing().lock().unwrap().active {
+        if !vertical && crate::guests::outgoing().lock().unwrap().active {
             *crate::guests::program().lock().unwrap() = Some(((w, h), Arc::new(p.rgba.clone()), p.seq));
         }
         gpu.context.Unmap(&pipe.staging, 0);

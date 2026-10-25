@@ -70,6 +70,12 @@ pub struct Settings {
     pub mirror: bool,
     /// A custom layout (replaces the scene while set).
     pub layout: Option<Layout>,
+    /// Your own 9:16 layout (None: made from the 16:9 one).
+    pub layout_v: Option<Layout>,
+    /// Show the 9:16 preview next to the 16:9 one.
+    pub vertical_preview: bool,
+    /// What Record writes: horizontal, vertical or both.
+    pub output: crate::engine::Output,
     /// Logo, colors and font.
     pub brand: Brand,
     /// The template last applied (highlighted in the app).
@@ -231,6 +237,9 @@ impl Default for Settings {
             pip_shadow: pip.shadow,
             mirror: pip.mirror,
             layout: None,
+            layout_v: None,
+            vertical_preview: false,
+            output: crate::engine::Output::Horizontal,
             brand: Brand::default(),
             template: None,
             stream_urls: vec![],
@@ -376,7 +385,29 @@ impl Settings {
     }
 
     pub fn live(&self) -> LiveState {
-        LiveState { scene: self.scene, pip: self.pip(), gain_db: [self.system_gain_db, self.mic_gain_db], muted: [self.system_muted, self.mic_muted], media_gain_db: self.media_gain_db, media_muted: self.media_muted, layout: self.layout.clone(), brand: self.brand.clone(), vbg: self.vbg.clone() }
+        LiveState {
+            scene: self.scene,
+            pip: self.pip(),
+            gain_db: [self.system_gain_db, self.mic_gain_db],
+            muted: [self.system_muted, self.mic_muted],
+            media_gain_db: self.media_gain_db,
+            media_muted: self.media_muted,
+            layout: self.layout.clone(),
+            brand: self.brand.clone(),
+            vbg: self.vbg.clone(),
+            vertical: self.vertical_layout(),
+            vertical_preview: self.vertical_preview,
+            output: self.output,
+        }
+    }
+
+    /// The 9:16 layout in use: your own, or made from the 16:9 one.
+    pub fn vertical_layout(&self) -> Layout {
+        if let Some(v) = &self.layout_v {
+            return v.clone();
+        }
+        let h = self.layout.clone().unwrap_or_else(|| Layout::from_scene(self.scene, &self.pip(), 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0));
+        h.to_vertical()
     }
 
     pub fn stream_url(&self, p: Platform) -> String {

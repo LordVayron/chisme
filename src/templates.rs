@@ -25,6 +25,9 @@ pub struct Template {
     /// The group it is shown in on the Templates page ("" = ungrouped).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub group: String,
+    /// Its own 9:16 layout (None: made from `layout`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vertical: Option<Layout>,
 }
 
 pub const EXT: &str = "chisme";
@@ -200,7 +203,7 @@ pub fn import(from: &Path) -> Result<Template> {
 
 /// Starter templates, made from the fixed scenes (1080p, 16:9 camera).
 pub fn starters(pip: &PipSpec) -> Vec<Template> {
-    let mk = |name: &str, scene: Scene| Template { name: name.into(), layout: Layout::from_scene(scene, pip, 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0), brand: None, assets: vec![], group: String::new() };
+    let mk = |name: &str, scene: Scene| Template { name: name.into(), layout: Layout::from_scene(scene, pip, 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0), brand: None, assets: vec![], group: String::new(), vertical: None };
     // Named in the interface language when they are made.
     vec![mk(Scene::ScreenCam.label(), Scene::ScreenCam), mk(Scene::SideBySide.label(), Scene::SideBySide), mk(crate::i18n::l("Presenter", "Presentador"), Scene::CamScreen)]
 }
@@ -218,6 +221,7 @@ pub fn guest_scenes() -> Vec<Template> {
         brand: None,
         assets: vec![],
         group: crate::i18n::l("Guests", "Invitados").into(),
+        vertical: None,
     };
     let (w, h) = (0.47, 0.45);
     vec![
@@ -289,7 +293,7 @@ mod tests {
         let png = std::fs::read(&logo).unwrap();
         let mut layout = Layout::default();
         layout.layers.push(Layer::image(&logo.to_string_lossy(), 1.0, 16.0 / 9.0));
-        let t = Template { name: "Mi marca".into(), layout, brand: Some(Brand { logo: Some(logo.to_string_lossy().into()), ..Default::default() }), assets: vec![], group: String::new() };
+        let t = Template { name: "Mi marca".into(), layout, brand: Some(Brand { logo: Some(logo.to_string_lossy().into()), ..Default::default() }), assets: vec![], group: String::new(), vertical: None };
         let file = src.join("Mi marca.chisme");
         export(&t, &file).unwrap();
 
@@ -324,6 +328,7 @@ mod tests {
             brand: Some(Brand { logo: Some(r"\\attacker\share\logo.png".into()), ..Default::default() }),
             assets: vec![("run.png".into(), b64(b"MZ not a picture")), (r"..\..\evil.exe".into(), b64(b"MZ"))],
             group: String::new(),
+            vertical: None,
         };
         let file = src.join("x.chisme");
         std::fs::write(&file, serde_json::to_string(&t).unwrap()).unwrap();

@@ -69,10 +69,23 @@ impl App {
     }
 }
 
-/// Mouse editing of the layout on the preview image `img`.
-pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect) {
-    let Some(layout) = app.settings.layout.clone() else { return };
-    let resp = ui.interact(img, Id::new("layout-edit"), Sense::click_and_drag());
+/// Mouse editing of the layout on the preview image `img`: the 16:9 one,
+/// or (`vertical`) the 9:16 one, which starts from the automatic layout.
+pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect, vertical: bool) {
+    let layout = if vertical {
+        app.settings.layout_v.clone().unwrap_or_else(|| app.settings.vertical_layout())
+    } else {
+        let Some(l) = app.settings.layout.clone() else { return };
+        l
+    };
+    let resp = ui.interact(img, Id::new(("layout-edit", vertical)), Sense::click_and_drag());
+    // Selection belongs to one picture at a time.
+    if (resp.drag_started() || resp.clicked()) && app.edit_v != vertical {
+        app.edit_v = vertical;
+        app.sel_layer = None;
+        app.drag = None;
+    }
+    let mine = app.edit_v == vertical;
     let pointer = resp.interact_pointer_pos().or(resp.hover_pos());
     let frac = |p: Pos2| (((p.x - img.left()) / img.width()) as f64, ((p.y - img.top()) / img.height()) as f64);
     let shift = ui.input(|i| i.modifiers.shift);
@@ -83,7 +96,7 @@ pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect) {
         corners(to_screen(l.rect, img)).iter().position(|c| (c.x - p.x).abs() <= HANDLE && (c.y - p.y).abs() <= HANDLE)
     };
     if let Some(p) = resp.hover_pos() {
-        let cursor = match handle_at(p, app.sel_layer) {
+        let cursor = match handle_at(p, app.sel_layer.filter(|_| mine)) {
             Some(0 | 3) => CursorIcon::ResizeNwSe,
             Some(_) => CursorIcon::ResizeNeSw,
             None if layout.hit(frac(p).0, frac(p).1).is_some() => CursorIcon::Grab,
@@ -95,7 +108,7 @@ pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect) {
     if resp.drag_started()
         && let Some(p) = pointer
     {
-        let corner = handle_at(p, app.sel_layer);
+        let corner = if mine { handle_at(p, app.sel_layer) } else { None };
         let target = if corner.is_some() { app.sel_layer } else { layout.hit(frac(p).0, frac(p).1) };
         app.sel_layer = target;
         app.drag = target.map(|i| Drag { layer: i, corner, start: layout.layers[i].rect, from: p });
@@ -141,7 +154,13 @@ pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect) {
             r[1] += s.dy;
             app.guides = (s.vx, s.hy);
         }
-        if let Some(l) = app.settings.layout.as_mut().and_then(|l| l.layers.get_mut(d.layer)) {
+        let target = if vertical {
+            let auto = app.settings.vertical_layout();
+            Some(app.settings.layout_v.get_or_insert(auto))
+        } else {
+            app.settings.layout.as_mut()
+        };
+        if let Some(l) = target.and_then(|l| l.layers.get_mut(d.layer)) {
             l.rect = clamp(r);
         }
         app.layout_live();
@@ -153,7 +172,7 @@ pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect) {
 
     // Selection outline, handles and guides.
     let painter = ui.painter_at(img);
-    if let Some(l) = app.sel_layer.and_then(|i| app.settings.layout.as_ref()?.layers.get(i)) {
+    if let Some(l) = app.sel_layer.filter(|_| app.edit_v == vertical).and_then(|i| layout.layers.get(i)) {
         let r = to_screen(l.rect, img);
         painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(1.5, ORANGE), StrokeKind::Outside);
         for c in corners(r) {

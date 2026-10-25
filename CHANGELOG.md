@@ -6,6 +6,12 @@ and versions follow [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Added
+- Vertical video. Record 16:9, 9:16 or both at once (two files, "name.mp4" and "name vertical.mp4"), from the picker next to Record. A 9:16 preview sits next to the 16:9 one; show or hide it with the 9:16 button.
+- Each scene gets an automatic 9:16 layout (screen on top, people below). With Custom on, move and resize layers on the 9:16 preview too; templates keep their own 9:16 layout, and "Back to automatic" resets it.
+- Streams with Vertical 9:16 on (TikTok, Instagram) send that 9:16 layout instead of a crop of the 16:9 picture.
+- Command line: `--aspect horizontal|vertical|both`.
+
+### Added
 - Studios: named sets of scenes for each kind of show. Pick one next to the scenes under the preview, and create, rename and edit them on the Templates page. Chisme starts with your current scenes plus Podcast, Content / Reels, Tutorial and Gaming / Stream.
 
 ### Removed

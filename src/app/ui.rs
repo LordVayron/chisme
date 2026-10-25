@@ -355,14 +355,67 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             app.restart(cfg);
         }
     } else if let Some(tex) = &app.preview {
+        // With the 9:16 preview on, it takes a column on the right.
+        let show_v = app.settings.vertical_preview;
+        let vcol = if show_v { (view.height() * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
+        let hview = Rect::from_min_max(view.min, pos2(view.right() - vcol, view.bottom()));
         let size = tex.size_vec2();
-        let (x, y, w, h) = fit((size.x as u32, size.y as u32), (view.width() as u32, view.height() as u32));
-        let img = Rect::from_min_size(view.min + vec2(x as f32, y as f32), vec2(w as f32, h as f32));
+        let (x, y, w, h) = fit((size.x as u32, size.y as u32), (hview.width() as u32, hview.height() as u32));
+        let img = Rect::from_min_size(hview.min + vec2(x as f32, y as f32), vec2(w as f32, h as f32));
         egui::Image::from_texture(tex).corner_radius(CornerRadius::same(14)).paint_at(ui, img);
+        let custom = app.settings.layout.is_some() && app.settings.template.is_none();
         if app.settings.layout.is_some() {
-            super::editor::layout_edit(app, ui, img);
+            super::editor::layout_edit(app, ui, img, false);
         } else {
             overlay_drag(app, ui, img);
+        }
+        if show_v {
+            let col = Rect::from_min_max(pos2(view.right() - vcol + 16.0, view.top()), view.max);
+            let vsize = vec2(col.width(), col.width() * 16.0 / 9.0).min(vec2(col.height() * 9.0 / 16.0, col.height()));
+            let vimg = Rect::from_center_size(col.center(), vsize);
+            match app.preview_v.as_ref().map(|t| t.id()) {
+                Some(id) => {
+                    egui::Image::from_texture((id, vimg.size())).corner_radius(CornerRadius::same(14)).paint_at(ui, vimg);
+                    if custom {
+                        super::editor::layout_edit(app, ui, vimg, true);
+                    }
+                }
+                None => {
+                    p.rect_filled(vimg, CornerRadius::same(14), Color32::from_rgb(14, 14, 16));
+                    text(&p, vimg.center(), Align2::CENTER_CENTER, l("Starting…", "Iniciando…"), medium(12.0), MUTED);
+                }
+            }
+            let chip = Rect::from_min_size(vimg.min + vec2(10.0, 10.0), vec2(46.0, 24.0));
+            p.rect_filled(chip, CornerRadius::same(12), Color32::from_rgba_premultiplied(0, 0, 0, 150));
+            text(&p, chip.center(), Align2::CENTER_CENTER, "9:16", semibold(11.0), TEXT);
+            if custom && app.settings.layout_v.is_some() {
+                let reset = Rect::from_min_size(pos2(vimg.left() + 10.0, vimg.bottom() - 34.0), vec2(vimg.width() - 20.0, 24.0));
+                if pill(ui, reset, "reset-v", l("Back to automatic", "Volver a automático"), Color32::from_rgba_premultiplied(0, 0, 0, 160), TEXT, semibold(11.0))
+                    .on_hover_text(l("Make the 9:16 layout from the 16:9 one again", "Rehacer el layout 9:16 a partir del 16:9"))
+                    .clicked()
+                {
+                    app.settings.layout_v = None;
+                    app.sel_layer = None;
+                    app.settings_changed();
+                }
+            }
+        }
+        // Show / hide the 9:16 preview.
+        {
+            let chip = Rect::from_min_size(pos2(img.right() - 12.0 - 72.0, img.bottom() - 12.0 - 26.0), vec2(72.0, 26.0));
+            let r = ui.interact(chip, Id::new("toggle-v"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if show_v {
+                l("Hide the vertical (9:16) preview", "Ocultar la vista vertical (9:16)")
+            } else {
+                l("Show the vertical (9:16) preview", "Mostrar la vista vertical (9:16)")
+            });
+            p.rect_filled(chip, CornerRadius::same(13), if r.hovered() { Color32::from_rgba_premultiplied(30, 30, 34, 190) } else { Color32::from_rgba_premultiplied(0, 0, 0, 150) });
+            let ic = Rect::from_center_size(chip.left_center() + vec2(16.0, 0.0), vec2(8.0, 14.0));
+            p.rect_stroke(ic, CornerRadius::same(2), Stroke::new(1.5, if show_v { ORANGE } else { TEXT }), StrokeKind::Inside);
+            text(&p, chip.left_center() + vec2(28.0, 0.0), Align2::LEFT_CENTER, "9:16", semibold(11.0), if show_v { ORANGE } else { TEXT });
+            if r.clicked() {
+                app.settings.vertical_preview = !show_v;
+                app.settings_changed();
+            }
         }
         // Show Chisme in recordings (top right).
         {
@@ -460,14 +513,50 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             .collect();
         let n = pins.len() as f32;
         let custom_box = Rect::from_min_size(pos2(inner.right() - 6.0 - 92.0, cy - 25.0), vec2(92.0, 50.0));
+        // What Record writes, next to the teleprompter.
+        let out_w = 150.0;
+        let out_r = Rect::from_min_size(pos2(pc.x + 24.0 + 16.0, cy - 15.0), vec2(out_w, 30.0));
+        {
+            use crate::engine::Output;
+            let label = |o: Output| match o {
+                Output::Horizontal => l("Record 16:9", "Grabar 16:9"),
+                Output::Vertical => l("Record 9:16", "Grabar 9:16"),
+                Output::Both => l("Record both", "Grabar ambos"),
+            };
+            let cur = app.settings.output;
+            let mut pick = None;
+            ui.scope_builder(UiBuilder::new().max_rect(out_r), |ui| {
+                ui.add_enabled_ui(!st.recording, |ui| {
+                    ComboBox::from_id_salt("output-pick")
+                        .width(out_w - 4.0)
+                        .selected_text(egui::RichText::new(label(cur)).size(13.0))
+                        .show_ui(ui, |ui| {
+                            for o in [Output::Horizontal, Output::Vertical, Output::Both] {
+                                if ui.selectable_label(o == cur, label(o)).clicked() {
+                                    pick = Some(o);
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text(l("Horizontal (16:9), vertical (9:16) or both at once (two files)", "Horizontal (16:9), vertical (9:16) o ambos a la vez (dos archivos)"));
+                });
+            });
+            if let Some(o) = pick {
+                app.settings.output = o;
+                if o.vertical() {
+                    app.settings.vertical_preview = true;
+                }
+                app.settings_changed();
+            }
+        }
         // The studio picker sits just left of its scenes.
         let combo_w = 170.0;
-        let left_edge = pc.x + 24.0 + 20.0 + combo_w + 10.0;
+        let left_edge = out_r.right() + 10.0 + combo_w + 10.0;
         let w = (92.0 * n).min(custom_box.left() - 10.0 - left_edge).max(0.0);
         let seg = Rect::from_min_size(pos2(custom_box.left() - 10.0 - w, cy - 25.0), vec2(w, 50.0));
         let show_pins = seg.width() > 60.0;
         let combo = Rect::from_min_size(pos2(if show_pins { seg.left() } else { custom_box.left() } - 10.0 - combo_w, cy - 15.0), vec2(combo_w, 30.0));
-        if combo.left() > pc.x + 34.0 {
+        if combo.left() > out_r.right() + 6.0 {
             let names: Vec<String> = app.settings.studios.iter().map(|s| s.name.clone()).collect();
             let cur = app.settings.studio;
             let mut pick = None;
@@ -548,6 +637,7 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                         Some(Pin::Scene(s)) => {
                             app.settings.scene = *s;
                             app.settings.layout = None;
+                            app.settings.layout_v = None;
                             app.settings.template = None;
                             app.sel_layer = None;
                             app.settings_changed();
@@ -1353,7 +1443,10 @@ fn platform_card(app: &mut App, ui: &mut Ui, card: Rect, p: Platform) {
             let key = app.key_mut(p);
             ui.add(egui::TextEdit::singleline(key).password(true).hint_text(l("Stream key", "Clave de transmisión")).desired_width(inner.width()));
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Vertical 9:16").color(MUTED).size(13.0));
+                ui.label(egui::RichText::new("Vertical 9:16").color(MUTED).size(13.0)).on_hover_text(l(
+                    "Sends your vertical (9:16) layout, the one in the Studio's 9:16 preview",
+                    "Envía tu layout vertical (9:16), el de la vista 9:16 del Estudio",
+                ));
                 let mut v = vertical;
                 if toggle(ui, &mut v).changed() {
                     app.settings.vertical.retain(|q| *q != p);

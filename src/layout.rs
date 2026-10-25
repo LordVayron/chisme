@@ -188,6 +188,47 @@ impl Layout {
         Layout { background: [0, 0, 0], background_image: None, layers }
     }
 
+    /// A 9:16 version of a 16:9 layout, for vertical video: the screen at
+    /// the top (full width, 16:9), the people (camera and guests) sharing the
+    /// rest, one under another and filling their boxes, lower thirds near the
+    /// bottom. Pictures are left out (they were placed for 16:9).
+    pub fn to_vertical(&self) -> Layout {
+        let shown = |s: Source| self.layers.iter().filter(move |l| l.visible && l.source == s);
+        let screen = shown(Source::Screen).next().cloned();
+        let mut people: Vec<Layer> = shown(Source::Camera).take(1).cloned().collect();
+        let mut guests: Vec<Layer> = shown(Source::Guest).cloned().collect();
+        guests.sort_by_key(|g| g.guest);
+        people.extend(guests);
+        let texts: Vec<Layer> = shown(Source::Text).cloned().collect();
+        let mut layers = vec![];
+        // 16:9 at full width of a 9:16 frame is 0.316 of its height.
+        let screen_h = 9.0 / 16.0 * 9.0 / 16.0;
+        let mut top = 0.0;
+        if let Some(mut s) = screen {
+            s.rect = if people.is_empty() { [0.0, (1.0 - screen_h) / 2.0, 1.0, screen_h] } else { [0.0, 0.0, 1.0, screen_h] };
+            s.shape = Shape::Rect;
+            s.border = 0.0;
+            s.shadow = false;
+            top = if people.is_empty() { 0.0 } else { screen_h };
+            layers.push(s);
+        }
+        let n = people.len().max(1) as f64;
+        let each = (1.0 - top) / n;
+        for (i, mut p) in people.into_iter().enumerate() {
+            p.rect = [0.0, top + each * i as f64, 1.0, each];
+            p.fill = true;
+            p.shape = Shape::Rect;
+            p.border = 0.0;
+            p.shadow = false;
+            layers.push(p);
+        }
+        for (i, mut t) in texts.into_iter().enumerate() {
+            t.rect = [0.05, 0.84 - 0.08 * i as f64, 0.8, 0.07];
+            layers.push(t);
+        }
+        Layout { background: self.background, background_image: self.background_image.clone(), layers }
+    }
+
     /// The topmost visible layer under the point (fractions), if any.
     pub fn hit(&self, x: f64, y: f64) -> Option<usize> {
         self.layers.iter().enumerate().rev().find(|(_, l)| l.visible && x >= l.rect[0] && x <= l.rect[0] + l.rect[2] && y >= l.rect[1] && y <= l.rect[1] + l.rect[3]).map(|(i, _)| i)
@@ -290,6 +331,19 @@ pub fn new_camera(pip: &PipSpec, w: f64, h: f64, cam_aspect: f64) -> Layer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vertical_stacks_screen_over_people() {
+        let pip = PipSpec::default();
+        let v = Layout::from_scene(Scene::ScreenCam, &pip, 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0).to_vertical();
+        assert_eq!(v.layers.len(), 2);
+        assert_eq!(v.layers[0].source, Source::Screen);
+        assert!((v.layers[0].rect[3] - 0.31640625).abs() < 1e-6);
+        assert_eq!(v.layers[1].source, Source::Camera);
+        assert!((v.layers[1].rect[1] + v.layers[1].rect[3] - 1.0).abs() < 1e-9, "the camera fills the rest");
+        let cam = Layout::from_scene(Scene::Cam, &pip, 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0).to_vertical();
+        assert_eq!(cam.layers[0].rect, [0.0, 0.0, 1.0, 1.0]);
+    }
 
     #[test]
     fn scenes_become_layers() {
