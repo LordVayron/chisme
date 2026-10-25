@@ -74,6 +74,8 @@ pub struct Settings {
     pub layout_v: Option<Layout>,
     /// Show the 9:16 preview next to the 16:9 one.
     pub vertical_preview: bool,
+    /// Show the 16:9 preview (hidden only while the 9:16 one shows).
+    pub horizontal_preview: bool,
     /// What Record writes: horizontal, vertical or both.
     pub output: crate::engine::Output,
     /// Logo, colors and font.
@@ -239,6 +241,7 @@ impl Default for Settings {
             layout: None,
             layout_v: None,
             vertical_preview: false,
+            horizontal_preview: true,
             output: crate::engine::Output::Horizontal,
             brand: Brand::default(),
             template: None,

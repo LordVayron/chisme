@@ -326,7 +326,7 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 let top = Rect::from_min_max(all.min, pos2(all.right(), all.bottom() - media_h - 16.0));
                 // The 9:16 preview, when on, widens the preview card by its own
                 // column; the 16:9 picture keeps its size.
-                let vcol = if app.settings.vertical_preview { ((top.height() - 24.0 - 64.0 - 30.0) * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
+                let vcol = if app.settings.vertical_preview && app.settings.horizontal_preview { ((top.height() - 24.0 - 64.0 - 30.0) * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
                 let left_w = ((w * 0.64).floor() + vcol).min(w - 16.0 - 380.0);
                 let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
                 let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
@@ -363,7 +363,7 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     // right, Custom alone in the corner.
     let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h));
     // Each preview on its own dark panel, with a gap between them.
-    if app.settings.vertical_preview && app.status.error.is_none() {
+    if app.settings.vertical_preview && app.settings.horizontal_preview && app.status.error.is_none() {
         let vcol = (view.height() * 9.0 / 16.0).floor() + 16.0;
         p.rect_filled(Rect::from_min_max(view.min, pos2(view.right() - vcol, view.bottom())), CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
         p.rect_filled(Rect::from_min_max(pos2(view.right() - vcol + 16.0, view.top()), view.max), CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
@@ -381,22 +381,31 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             app.restart(cfg);
         }
     } else if let Some(tex) = &app.preview {
-        // With the 9:16 preview on, it takes a column on the right.
+        // The 16:9 and 9:16 previews: either or both (never neither). With
+        // both on, the 9:16 one takes a column on the right.
         let show_v = app.settings.vertical_preview;
-        let vcol = if show_v { (view.height() * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
-        let hview = Rect::from_min_max(view.min, pos2(view.right() - vcol, view.bottom()));
-        let size = tex.size_vec2();
-        let (x, y, w, h) = fit((size.x as u32, size.y as u32), (hview.width() as u32, hview.height() as u32));
-        let img = Rect::from_min_size(hview.min + vec2(x as f32, y as f32), vec2(w as f32, h as f32));
-        egui::Image::from_texture(tex).corner_radius(CornerRadius::same(14)).paint_at(ui, img);
+        let show_h = app.settings.horizontal_preview || !show_v;
+        let vcol = if show_v && show_h { (view.height() * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
         let custom = app.settings.layout.is_some() && app.settings.template.is_none();
-        if app.settings.layout.is_some() {
-            super::editor::layout_edit(app, ui, img, false);
-        } else {
-            overlay_drag(app, ui, img);
+        let mut anchor = view;
+        let mut himg = None;
+        if show_h {
+            let hview = Rect::from_min_max(view.min, pos2(view.right() - vcol, view.bottom()));
+            let size = tex.size_vec2();
+            let (x, y, w, h) = fit((size.x as u32, size.y as u32), (hview.width() as u32, hview.height() as u32));
+            let img = Rect::from_min_size(hview.min + vec2(x as f32, y as f32), vec2(w as f32, h as f32));
+            egui::Image::from_texture(tex).corner_radius(CornerRadius::same(14)).paint_at(ui, img);
+            if app.settings.layout.is_some() {
+                super::editor::layout_edit(app, ui, img, false);
+            } else {
+                overlay_drag(app, ui, img);
+            }
+            anchor = img;
+            himg = Some(img);
         }
+        let mut vimg_r = None;
         if show_v {
-            let col = Rect::from_min_max(pos2(view.right() - vcol + 16.0, view.top()), view.max);
+            let col = if show_h { Rect::from_min_max(pos2(view.right() - vcol + 16.0, view.top()), view.max) } else { view };
             let vsize = vec2(col.width(), col.width() * 16.0 / 9.0).min(vec2(col.height() * 9.0 / 16.0, col.height()));
             let vimg = Rect::from_center_size(col.center(), vsize);
             match app.preview_v.as_ref().map(|t| t.id()) {
@@ -411,11 +420,15 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                     text(&p, vimg.center(), Align2::CENTER_CENTER, l("Starting…", "Iniciando…"), medium(12.0), MUTED);
                 }
             }
-            let chip = Rect::from_min_size(vimg.min + vec2(10.0, 10.0), vec2(46.0, 24.0));
-            p.rect_filled(chip, CornerRadius::same(12), Color32::from_rgba_premultiplied(0, 0, 0, 150));
-            text(&p, chip.center(), Align2::CENTER_CENTER, "9:16", semibold(11.0), TEXT);
+            if show_h {
+                let chip = Rect::from_min_size(vimg.min + vec2(10.0, 10.0), vec2(46.0, 24.0));
+                p.rect_filled(chip, CornerRadius::same(12), Color32::from_rgba_premultiplied(0, 0, 0, 150));
+                text(&p, chip.center(), Align2::CENTER_CENTER, "9:16", semibold(11.0), TEXT);
+            } else {
+                anchor = vimg;
+            }
             if custom && app.settings.layout_v.is_some() {
-                let reset = Rect::from_min_size(pos2(vimg.left() + 10.0, vimg.bottom() - 34.0), vec2(vimg.width() - 20.0, 24.0));
+                let reset = Rect::from_min_size(pos2(vimg.left() + 10.0, vimg.bottom() - 72.0), vec2(vimg.width() - 20.0, 24.0));
                 if pill(ui, reset, "reset-v", l("Back to automatic", "Volver a automático"), Color32::from_rgba_premultiplied(0, 0, 0, 160), TEXT, semibold(11.0))
                     .on_hover_text(l("Make the 9:16 layout from the 16:9 one again", "Rehacer el layout 9:16 a partir del 16:9"))
                     .clicked()
@@ -425,24 +438,34 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                     app.settings_changed();
                 }
             }
+            vimg_r = Some(vimg);
         }
-        // Show / hide the 9:16 preview.
-        {
-            let chip = Rect::from_min_size(pos2(img.right() - 12.0 - 72.0, img.bottom() - 12.0 - 26.0), vec2(72.0, 26.0));
-            let r = ui.interact(chip, Id::new("toggle-v"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if show_v {
-                l("Hide the vertical (9:16) preview", "Ocultar la vista vertical (9:16)")
-            } else {
-                l("Show the vertical (9:16) preview", "Mostrar la vista vertical (9:16)")
-            });
+        // Show / hide buttons: "9:16" on the 16:9 picture, "16:9" on the
+        // 9:16 one (the 16:9 one can only hide while the 9:16 one shows).
+        let mut toggle_chip = |ui: &mut Ui, at: Rect, id: &str, label: &str, on: bool, vertical_icon: bool, tip: &str| -> bool {
+            let chip = Rect::from_min_size(pos2(at.right() - 12.0 - 72.0, at.bottom() - 12.0 - 26.0), vec2(72.0, 26.0));
+            let r = ui.interact(chip, Id::new(id), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tip);
             p.rect_filled(chip, CornerRadius::same(13), if r.hovered() { Color32::from_rgba_premultiplied(30, 30, 34, 190) } else { Color32::from_rgba_premultiplied(0, 0, 0, 150) });
-            let ic = Rect::from_center_size(chip.left_center() + vec2(16.0, 0.0), vec2(8.0, 14.0));
-            p.rect_stroke(ic, CornerRadius::same(2), Stroke::new(1.5, if show_v { ORANGE } else { TEXT }), StrokeKind::Inside);
-            text(&p, chip.left_center() + vec2(28.0, 0.0), Align2::LEFT_CENTER, "9:16", semibold(11.0), if show_v { ORANGE } else { TEXT });
-            if r.clicked() {
-                app.settings.vertical_preview = !show_v;
-                app.settings_changed();
-            }
+            let ic = Rect::from_center_size(chip.left_center() + vec2(16.0, 0.0), if vertical_icon { vec2(8.0, 14.0) } else { vec2(15.0, 9.0) });
+            let col = if on { ORANGE } else { TEXT };
+            p.rect_stroke(ic, CornerRadius::same(2), Stroke::new(1.5, col), StrokeKind::Inside);
+            text(&p, chip.left_center() + vec2(28.0, 0.0), Align2::LEFT_CENTER, label, semibold(11.0), col);
+            r.clicked()
+        };
+        if let Some(img) = himg
+            && toggle_chip(ui, img, "toggle-v", "9:16", show_v, true, if show_v { l("Hide the vertical (9:16) preview", "Ocultar la vista vertical (9:16)") } else { l("Show the vertical (9:16) preview", "Mostrar la vista vertical (9:16)") })
+        {
+            app.settings.vertical_preview = !show_v;
+            app.settings.horizontal_preview = true;
+            app.settings_changed();
         }
+        if let Some(vimg) = vimg_r
+            && toggle_chip(ui, vimg, "toggle-h", "16:9", show_h, false, if show_h { l("Hide the horizontal (16:9) preview", "Ocultar la vista horizontal (16:9)") } else { l("Show the horizontal (16:9) preview", "Mostrar la vista horizontal (16:9)") })
+        {
+            app.settings.horizontal_preview = !show_h;
+            app.settings_changed();
+        }
+        let img = anchor;
         // Show Chisme in recordings (top right).
         {
             let label = l("Show Chisme in recording", "Mostrar Chisme en la grabación");
