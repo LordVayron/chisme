@@ -362,7 +362,14 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     // One row under the preview: record controls on the left, scenes on the
     // right, Custom alone in the corner.
     let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h));
-    p.rect_filled(view, CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
+    // Each preview on its own dark panel, with a gap between them.
+    if app.settings.vertical_preview && app.status.error.is_none() {
+        let vcol = (view.height() * 9.0 / 16.0).floor() + 16.0;
+        p.rect_filled(Rect::from_min_max(view.min, pos2(view.right() - vcol, view.bottom())), CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
+        p.rect_filled(Rect::from_min_max(pos2(view.right() - vcol + 16.0, view.top()), view.max), CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
+    } else {
+        p.rect_filled(view, CornerRadius::same(18), Color32::from_rgb(6, 6, 7));
+    }
 
     let st = app.status.clone();
     if let Some(err) = &st.error {
