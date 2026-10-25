@@ -201,7 +201,7 @@ pub fn parse_twitch(line: &str) -> Option<(String, Option<[u8; 3]>, String)> {
         Some(l) => l.split_once(' ')?,
         None => ("", line),
     };
-    // ":nick!nick@host.example.com PRIVMSG #chan :text"
+    // ":nick!nick@example.com PRIVMSG #chan :text"
     let rest = rest.strip_prefix(':')?;
     let (prefix, rest) = rest.split_once(' ')?;
     let rest = rest.strip_prefix("PRIVMSG ")?;
@@ -427,10 +427,10 @@ mod tests {
 
     #[test]
     fn twitch_lines() {
-        let l = "@badge-info=;color=#1E90FF;display-name=JorgeFan;emotes= :jorgefan!jorgefan@host.example.com PRIVMSG #lordvayron :hola chat";
+        let l = "@badge-info=;color=#1E90FF;display-name=JorgeFan;emotes= :jorgefan!jorgefan@example.com PRIVMSG #lordvayron :hola chat";
         assert_eq!(parse_twitch(l), Some(("JorgeFan".into(), Some([0x1e, 0x90, 0xff]), "hola chat".into())));
         assert_eq!(parse_twitch(":tmi.twitch.tv 001 justinfan1 :Welcome"), None);
-        let me = "@color=;display-name=X :x!x@host.example.com PRIVMSG #c :\u{1}ACTION waves\u{1}";
+        let me = "@color=;display-name=X :x!x@example.com PRIVMSG #c :\u{1}ACTION waves\u{1}";
         assert_eq!(parse_twitch(me).unwrap().2, "waves");
     }
 
