@@ -685,6 +685,7 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                     match pin {
                         Some(Pin::Scene(s)) => {
                             app.settings.scene = *s;
+                            app.settings.switch += 1;
                             app.settings.layout = None;
                             app.settings.layout_v = None;
                             app.settings.template = None;
@@ -1624,7 +1625,7 @@ fn settings(app: &mut App, ui: &mut Ui, area: Rect) {
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             let width = area.width() - 14.0;
-            let (h1, h2, h3, h4) = (196.0, 308.0, 150.0, 340.0);
+            let (h1, h2, h3, h4) = (276.0, 308.0, 150.0, 340.0);
             let one = width < 900.0;
             let col_w = if one { width } else { (width - 16.0) / 2.0 };
             let total = if one { 2.0 * (h1 + h2 + h3) + h4 + 112.0 } else { h1 + h2 + h3 + h4 + 48.0 };
@@ -1713,6 +1714,18 @@ fn video_section(app: &mut App, ui: &mut Ui, rect: Rect, w: f32) {
             combo(ui, "codec", &mut app.settings.codec, &codecs, w);
             ui.label("")
         });
+        // How scenes change (button, shortcut or template).
+        use crate::win::transition::Kind;
+        let kinds: Vec<(Kind, String)> = Kind::ALL.iter().map(|k| (*k, k.label().to_string())).collect();
+        row(ui, l("Scene transition", "Transición de escena"), |ui| {
+            combo(ui, "transition", &mut app.settings.transition.kind, &kinds, w);
+            ui.label("")
+        });
+        if app.settings.transition.kind != Kind::Cut {
+            row(ui, l("Transition length", "Duración de la transición"), |ui| {
+                ui.add(egui::Slider::new(&mut app.settings.transition.ms, 100..=1500).step_by(50.0).suffix(" ms"))
+            });
+        }
     });
 }
 

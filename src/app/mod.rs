@@ -413,6 +413,7 @@ impl App {
 
     /// Switch to a template's layout (and brand, if it has one), live.
     pub fn apply_template(&mut self, t: &crate::templates::Template) {
+        self.settings.switch += 1;
         self.settings.layout = Some(t.layout.clone());
         self.settings.layout_v = t.vertical.clone();
         if let Some(b) = &t.brand {
