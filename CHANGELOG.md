@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-26
+
 ### Added
 - Tutorial mode: a new card on the Studio page with one main switch (off by default) and a switch per part. Each part can go to the recording, the stream or both, and it all works live:
   - Click effects: a ring on every click, in your brand color or any color you pick.
@@ -188,7 +190,8 @@ and versions follow [Semantic Versioning](https://semver.org).
   TikTok, X and RTMP, a replay buffer, Whisper subtitles, a tray icon, global hotkeys, a command
   line and the installer.
 
-[Unreleased]: https://github.com/LordVayron/chisme/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/LordVayron/chisme/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/LordVayron/chisme/releases/tag/v0.7.0
 [0.6.0]: https://github.com/LordVayron/chisme/releases/tag/v0.6.0
 [0.5.0]: https://github.com/LordVayron/chisme/releases/tag/v0.5.0
 [0.4.4]: https://github.com/LordVayron/chisme/releases/tag/v0.4.4
