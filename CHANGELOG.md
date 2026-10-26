@@ -24,7 +24,12 @@ and versions follow [Semantic Versioning](https://semver.org).
   - Hovering a layer outlines it.
   - The 9:16 layout's layers have the same settings (pick 16:9 or 9:16 at the top of the Layers card, or click that preview).
 
+- Go live from the Studio page: one button starts every platform you pick (the arrow next to it; it remembers), using the keys you saved on the Live page. Clicking it again asks, then ends them all.
+- Guests: "Invite a guest" makes a link for one person (type their name if you like; it fills theirs), copies it and opens the green room. The links you made are listed with Copy. The LiveKit settings fold behind the gear once they're set.
+- A selected camera layer shows the camera itself in the Layers card: which camera, its background, and zoom, focus and light.
+
 ### Changed
+- Studio page: the Media Board sits under the preview, and the right column's cards end with it (Camera, or Layers while editing, takes the height left), so there's no empty space.
 - While you edit a layout, the Layers card sits beside the preview and uses the full height (Live audio goes under it), so the preview and all the settings are visible together.
 - The Chat card shows on the Studio page only while you're live.
 - Every scene keeps its own 9:16 layout. Changing the 9:16 layout of one scene no longer changes another, and the 9:16 layout no longer changes when you edit the 16:9 one.

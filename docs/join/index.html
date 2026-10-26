@@ -278,7 +278,7 @@ $('tmic').onclick = () => { const t = stream.getAudioTracks()[0]; t.enabled = !t
 $('tcam').onclick = () => { const t = stream.getVideoTracks()[0]; t.enabled = !t.enabled; $('tcam').textContent = t.enabled ? 'Camera off' : 'Camera on'; $('tcam').classList.toggle('off', !t.enabled); };
 $('leave').onclick = () => { room && room.disconnect(); stream && stream.getTracks().forEach(t => t.stop()); setStatus('ended'); };
 
-try { $('name').value = localStorage.getItem('chisme-name') || ''; $('plate').textContent = $('name').value; } catch (e) {}
+try { $('name').value = hash.get('name') || localStorage.getItem('chisme-name') || ''; $('plate').textContent = $('name').value; } catch (e) {}
 if (!url || !token) fail('This link is incomplete. Ask the host for a new invite link.');
 if (!navigator.mediaDevices) fail("This browser can't reach your camera here. Open the link in Chrome, Edge, Firefox or Safari.");
 else (async () => { await preview(); await devices(); navigator.mediaDevices.ondevicechange = devices; })();

@@ -122,6 +122,9 @@ pub struct Settings {
     pub media_pack: u32,
     /// Media Board items pinned to the Studio, in their order (by path).
     pub media_strip: Vec<String>,
+    /// Platforms the Studio's Go live button starts (None: every one with a
+    /// key; set once you pick).
+    pub go_live: Option<Vec<crate::live::Platform>>,
     /// Guests: your LiveKit project (the secret is in Credential Manager).
     pub guests: crate::guests::Config,
     /// Interface language.
@@ -250,6 +253,7 @@ impl Default for Settings {
             fold_camera: false,
             fold_chat: false,
             media_strip: vec![],
+            go_live: None,
             layout_locked: false,
             layout_locked_v: false,
             pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),

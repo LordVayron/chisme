@@ -857,6 +857,7 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                 ui.label(egui::RichText::new(tr("No layers yet: add one above.", "Aún no hay capas: agrega una arriba.")).color(FAINT).size(12.0));
             }
             let mut pick = None;
+            let mut cam_sel = false;
             for i in (0..n).rev() {
                 let is_sel = sel == Some(i);
                 let l = &mut layout.layers[i];
@@ -1030,12 +1031,7 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                         changed |= ui.color_edit_button_srgb(&mut l.border_color).on_hover_text(tr("Any color", "Cualquier color")).changed();
                     }
                 });
-                if has_cam && l.source == Source::Camera {
-                    heading(ui, tr("CAMERA BACKGROUND", "FONDO DE LA CÁMARA"));
-                    if super::ui::vbg_row(ui, &mut app.settings.vbg, 180.0) {
-                        changed = true;
-                    }
-                }
+                cam_sel = l.source == Source::Camera;
             } else {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new(tr(
@@ -1045,6 +1041,48 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                 .color(FAINT)
                 .size(12.0));
             }
+            // A camera layer: the camera itself (which one, its background,
+            // zoom, focus, light), like the Camera card.
+            if cam_sel {
+                heading(ui, tr("CAMERA", "CÁMARA"));
+                if app.devices.cameras.is_empty() {
+                    app.refresh_devices();
+                }
+                let cams = app.devices.cameras.clone();
+                let cur = app.settings.camera.clone();
+                let mut pick_cam = None;
+                egui::ComboBox::from_id_salt("layer-cam")
+                    .width((ui.available_width() - 8.0).min(300.0))
+                    .selected_text(cur.clone().unwrap_or_else(|| tr("No camera", "Sin cámara").to_string()))
+                    .show_ui(ui, |ui| {
+                        for c in &cams {
+                            if ui.selectable_label(cur.as_deref() == Some(c.as_str()), c).clicked() {
+                                pick_cam = Some(c.clone());
+                            }
+                        }
+                    });
+                if let Some(c) = pick_cam {
+                    app.settings.camera = Some(c);
+                    changed = true;
+                }
+                if has_cam {
+                    if super::ui::vbg_row(ui, &mut app.settings.vbg, 180.0) {
+                        changed = true;
+                    }
+                    egui::CollapsingHeader::new(egui::RichText::new(tr("Zoom, focus and light", "Zoom, enfoque y luz")).color(MUTED).size(13.0))
+                        .id_salt("layer-cam-controls")
+                        .show(ui, |ui| super::ui::cam_controls(app, ui));
+                }
+            }
+            let layout = if v {
+                let auto = app.settings.vertical_layout();
+                app.settings.layout_v.get_or_insert(auto)
+            } else {
+                match app.settings.layout.as_mut() {
+                    Some(l) => l,
+                    None => return,
+                }
+            };
             ui.add_space(6.0);
             ui.separator();
             // Background.

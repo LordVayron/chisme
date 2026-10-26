@@ -135,10 +135,16 @@ fn token(cfg: &Config, secret: &str, identity: &str, name: &str, hours: u64, hos
 }
 
 /// A link for one guest (valid 24 hours).
-pub fn invite_link(cfg: &Config, secret: &str) -> Result<String> {
+/// A link for one guest (`name`, optional, fills their name field).
+pub fn invite_link(cfg: &Config, secret: &str, name: &str) -> Result<String> {
     let id = format!("guest-{:08x}", rand_u32());
-    let t = token(cfg, secret, &id, "Guest", 24, false)?;
-    Ok(format!("{JOIN_PAGE}#url={}&token={}", urlencode(&cfg.url), t))
+    let shown = if name.trim().is_empty() { "Guest" } else { name.trim() };
+    let t = token(cfg, secret, &id, shown, 24, false)?;
+    let mut link = format!("{JOIN_PAGE}#url={}&token={}", urlencode(&cfg.url), t);
+    if !name.trim().is_empty() {
+        link.push_str(&format!("&name={}", urlencode(name.trim())));
+    }
+    Ok(link)
 }
 
 fn rand_u32() -> u32 {

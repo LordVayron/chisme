@@ -186,7 +186,13 @@ pub struct App {
     /// made, and camera thumbnails (identity -> frame counter, texture).
     pub guest_room: Option<crate::guests::Room>,
     pub guest_secret: String,
-    pub guest_links: Vec<String>,
+    /// Invite links made this session: (name, link).
+    pub guest_links: Vec<(String, String)>,
+    /// The name typed for the next invite, and the server settings shown.
+    pub guest_name: String,
+    pub guest_setup: bool,
+    /// Asking before ending every stream.
+    pub end_live_ask: bool,
     pub guest_thumbs: std::collections::HashMap<String, (u64, egui::TextureHandle)>,
 }
 
@@ -288,6 +294,9 @@ impl App {
             guest_room: None,
             guest_secret: crate::win::creds::get("livekit").unwrap_or_default(),
             guest_links: vec![],
+            guest_name: String::new(),
+            guest_setup: false,
+            end_live_ask: false,
             guest_thumbs: Default::default(),
         }
     }
@@ -434,6 +443,48 @@ impl App {
         if let Some(e) = &self.engine {
             e.send(Cmd::StartStream(StreamSpec { platform: p, url, key, vertical: self.settings.is_vertical(p) || p == Platform::Instagram, kbps: None }));
         }
+    }
+
+    /// Platforms ready to go live: a key and a server URL.
+    pub fn stream_ready(&self, p: Platform) -> bool {
+        !self.key(p).trim().is_empty() && !self.settings.stream_url(p).is_empty()
+    }
+
+    /// The Go live button's platforms: the ones picked, else every ready one.
+    pub fn go_live_targets(&self) -> Vec<Platform> {
+        let ready: Vec<Platform> = Platform::ALL.into_iter().filter(|p| self.stream_ready(*p)).collect();
+        match &self.settings.go_live {
+            Some(picked) => ready.into_iter().filter(|p| picked.contains(p)).collect(),
+            None => ready,
+        }
+    }
+
+    /// Start every picked platform at once.
+    pub fn go_live(&mut self) {
+        let targets = self.go_live_targets();
+        if targets.is_empty() {
+            self.toast(l("Add a stream key on the Live page first", "Primero agrega una clave en la página Transmitir"));
+            self.page = Page::Live;
+            return;
+        }
+        for p in &targets {
+            if self.stream_id(*p).is_none() {
+                self.start_stream(*p);
+            }
+        }
+        let names: Vec<&str> = targets.iter().map(|p| p.label()).collect();
+        self.toast(t!("Going live on {}", "Transmitiendo en {}", names.join(", ")));
+    }
+
+    /// End every platform stream (the replay buffer keeps going).
+    pub fn end_live(&mut self) {
+        let ids: Vec<u64> = self.status.streams.iter().filter(|s| s.platform.is_some()).map(|s| s.id).collect();
+        if let Some(e) = &self.engine {
+            for id in ids {
+                e.send(Cmd::StopStream(id));
+            }
+        }
+        self.toast(l("Stream ended", "Transmisión terminada"));
     }
 
     pub fn stop_stream(&mut self, p: Platform) {

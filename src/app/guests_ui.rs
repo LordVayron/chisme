@@ -35,13 +35,25 @@ impl App {
         }
     }
 
+    /// One click: a new link for one guest, copied. The green room opens
+    /// too, so they can wait there.
     pub fn guests_invite(&mut self, ctx: &egui::Context) {
-        match guests::invite_link(&self.settings.guests, &self.guest_secret) {
+        if self.settings.guests.room.is_empty() {
+            self.settings.guests.room = guests::new_room_name();
+            let _ = self.settings.save();
+        }
+        let name = self.guest_name.trim().to_string();
+        match guests::invite_link(&self.settings.guests, &self.guest_secret, &name) {
             Ok(link) => {
                 ctx.copy_text(link.clone());
-                self.guest_links.insert(0, link);
-                self.guest_links.truncate(8);
-                self.toast(l("Invite link copied. Paste it to your guest.", "Link copiado. Pégaselo a tu invitado."));
+                let shown = if name.is_empty() { t!("Guest {}", "Invitado {}", self.guest_links.len() + 1) } else { name };
+                self.guest_links.insert(0, (shown.clone(), link));
+                self.guest_links.truncate(12);
+                self.guest_name.clear();
+                self.toast(t!("Link for {} copied. Paste it to them.", "Link de {} copiado. Pégaselo.", shown));
+                if self.guest_room.is_none() {
+                    self.guests_open();
+                }
             }
             Err(e) => self.toast(format!("{e:#}")),
         }
@@ -75,23 +87,79 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
         (Some(_), true, None) => t!("Room {} is open · {} waiting", "Sala {} abierta · {} esperando", app.settings.guests.room, guest_list.iter().filter(|g| !g.on_stage).count()),
     };
     p.text(bar.left_center() + vec2(22.0, 11.0), Align2::LEFT_CENTER, sub, body(12.0), if error.is_some() { RED } else { FAINT });
-    let b1 = Rect::from_min_size(pos2(bar.right() - 20.0 - 170.0, bar.center().y - 19.0), vec2(170.0, 38.0));
-    let b2 = Rect::from_min_size(pos2(b1.left() - 10.0 - 190.0, b1.top()), vec2(190.0, 38.0));
+    // Right: server settings (gear), close room, the name and Invite.
+    let gear = Rect::from_min_size(pos2(bar.right() - 20.0 - 38.0, bar.center().y - 19.0), vec2(38.0, 38.0));
+    {
+        let tip = l("Server settings (LiveKit)", "Ajustes del servidor (LiveKit)");
+        let resp = ui.interact(gear, egui::Id::new("g-gear"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip));
+        p.rect_filled(gear, CornerRadius::same(19), if app.guest_setup || resp.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 120) } else { Color32::from_rgba_premultiplied(40, 40, 44, 100) });
+        p.text(gear.center(), Align2::CENTER_CENTER, "⚙", semibold(16.0), if app.guest_setup { ORANGE } else { TEXT });
+        if resp.clicked() {
+            app.guest_setup = !app.guest_setup;
+        }
+    }
+    let mut right = gear.left() - 10.0;
     if app.guest_room.is_some() {
-        if pill(ui, b1, "g-close", l("Close room", "Cerrar sala"), false) {
+        let b = Rect::from_min_size(pos2(right - 130.0, gear.top()), vec2(130.0, 38.0));
+        if pill(ui, b, "g-close", l("Close room", "Cerrar sala"), false) {
             app.guest_room = None;
             app.guest_thumbs.clear();
         }
-        if connected && pill(ui, b2, "g-invite", l("Copy invite link", "Copiar link"), true) {
+        right = b.left() - 10.0;
+    }
+    if ready {
+        let b = Rect::from_min_size(pos2(right - 170.0, gear.top()), vec2(170.0, 38.0));
+        if pill(ui, b, "g-invite", l("Invite a guest", "Invitar a alguien"), true) {
             app.guests_invite(&ctx);
         }
-    } else if ready && pill(ui, b1, "g-open", l("Open green room", "Abrir sala"), true) {
-        app.guests_open();
+        let nr = Rect::from_min_size(pos2(b.left() - 10.0 - 190.0, gear.top() + 4.0), vec2(190.0, 30.0));
+        if nr.left() > bar.left() + 360.0 {
+            ui.scope_builder(UiBuilder::new().max_rect(nr), |ui| {
+                let r = ui.add(egui::TextEdit::singleline(&mut app.guest_name).hint_text(l("Their name (optional)", "Su nombre (opcional)")).desired_width(nr.width()));
+                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    app.guests_invite(&ctx);
+                }
+            });
+        }
     }
 
-    let below = Rect::from_min_max(pos2(area.left(), bar.bottom() + 16.0), area.max);
-    if !ready || app.guest_room.is_none() {
+    let mut below = Rect::from_min_max(pos2(area.left(), bar.bottom() + 16.0), area.max);
+    if !ready || app.guest_setup {
         setup(app, ui, below, ready);
+        if !ready {
+            return;
+        }
+        below.min.y += 380.0 + 16.0;
+    }
+    // The links made: one per person, each with Copy.
+    if !app.guest_links.is_empty() {
+        let rows = app.guest_links.len().min(4);
+        let lr = Rect::from_min_size(below.min, vec2(below.width(), 48.0 + rows as f32 * 34.0));
+        theme::card(ui.painter(), lr);
+        p.text(lr.min + vec2(18.0, 22.0), Align2::LEFT_CENTER, l("Invite links (one per person, 24 hours)", "Links de invitación (uno por persona, 24 horas)"), semibold(13.0), MUTED);
+        let mut copy = None;
+        let links = app.guest_links.clone();
+        for (k, (name, link)) in links.iter().take(rows).enumerate() {
+            let y = lr.top() + 48.0 + k as f32 * 34.0 + 12.0;
+            p.text(pos2(lr.left() + 18.0, y), Align2::LEFT_CENTER, truncate(name, 22), medium(13.0), TEXT);
+            p.text(pos2(lr.left() + 200.0, y), Align2::LEFT_CENTER, truncate(link, ((lr.width() - 320.0) / 7.0).max(10.0) as usize), body(12.0), FAINT);
+            let b = Rect::from_min_size(pos2(lr.right() - 18.0 - 80.0, y - 14.0), vec2(80.0, 28.0));
+            if pill(ui, b, &format!("g-copy-{k}"), l("Copy", "Copiar"), false) {
+                copy = Some(link.clone());
+            }
+        }
+        if let Some(link) = copy {
+            ctx.copy_text(link);
+            app.toast(l("Link copied", "Link copiado"));
+        }
+        below.min.y = lr.bottom() + 16.0;
+    }
+    if app.guest_room.is_none() {
+        let r = Rect::from_min_size(below.min, vec2(below.width(), 200.0));
+        p.rect_stroke(r, CornerRadius::same(R_CARD), Stroke::new(1.5, Color32::from_white_alpha(30)), StrokeKind::Inside);
+        p.text(r.center() - vec2(0.0, 14.0), Align2::CENTER_CENTER, l("Click \"Invite a guest\" and send them the link", "Haz clic en \"Invitar a alguien\" y mándale el link"), medium(16.0), TEXT);
+        p.text(r.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, l("Each person gets their own link. They show up here, and you bring them on stage.", "Cada persona tiene su propio link. Aparecen aquí y tú los subes al escenario."), body(12.5), MUTED);
         return;
     }
 
@@ -117,7 +185,7 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
         let r = Rect::from_min_size(grid.min, vec2(grid.width(), 200.0));
         p.rect_stroke(r, CornerRadius::same(R_CARD), Stroke::new(1.5, Color32::from_white_alpha(30)), StrokeKind::Inside);
         p.text(r.center() - vec2(0.0, 14.0), Align2::CENTER_CENTER, l("Nobody here yet", "Todavía no hay nadie"), medium(16.0), TEXT);
-        p.text(r.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, l("Copy an invite link and send it. Each link is for one person and lasts 24 hours.", "Copia un link y mándalo. Cada link es para una persona y dura 24 horas."), body(12.5), MUTED);
+        p.text(r.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, l("Click \"Invite a guest\" and send the link. Each person gets their own.", "Haz clic en \"Invitar a alguien\" y manda el link. Cada persona tiene el suyo."), body(12.5), MUTED);
         return;
     }
     let cols = ((grid.width() + 16.0) / 300.0).floor().clamp(1.0, 4.0) as usize;
@@ -262,7 +330,7 @@ fn setup(app: &mut App, ui: &mut Ui, area: Rect, ready: bool) {
         }
         ui.add_space(10.0);
         ui.label(egui::RichText::new(if ready {
-            l("Ready. Click \"Open green room\" up top.", "Listo. Haz clic en \"Abrir sala\" arriba.")
+            l("Ready. You only do this once: click \"Invite a guest\" up top.", "Listo. Esto se hace una sola vez: haz clic en \"Invitar a alguien\" arriba.")
         } else {
             l("Fill in all three to open the green room.", "Llena los tres para abrir la sala.")
         }).font(body(12.5)).color(if ready { GREEN } else { FAINT }));
