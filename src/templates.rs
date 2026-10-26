@@ -262,10 +262,55 @@ pub fn stream_scenes() -> Vec<Template> {
     ]
 }
 
-/// Add the guest scenes and stream screens if they aren't there yet.
+/// The Tutorial template's name.
+pub fn tutorial_name() -> &'static str {
+    "Tutorial"
+}
+
+/// The Tutorial look: the screen with room around it, rounded corners and
+/// a shadow, on a dark gradient with an orange and a blue glow.
+pub fn tutorial_scene() -> Template {
+    use crate::compose::Shape;
+    use crate::layout::{Layer, Source};
+    let bg = assets_dir().join("tutorial-gradient.png");
+    if !bg.exists() {
+        let _ = std::fs::create_dir_all(assets_dir());
+        let _ = gradient(1920, 1080).save(&bg);
+    }
+    let screen = Layer { source: Source::Screen, rect: [0.06, 0.07, 0.88, 0.86], fill: false, shape: Shape::Rounded, roundness: 0.05, shadow: true, ..Default::default() };
+    Template {
+        name: tutorial_name().into(),
+        layout: Layout { layers: vec![screen], background: [16, 16, 22], background_image: bg.exists().then(|| bg.to_string_lossy().into_owned()) },
+        brand: None,
+        assets: vec![],
+        group: String::new(),
+        vertical: None,
+    }
+}
+
+/// A dark background with soft orange (top left) and blue (bottom right)
+/// glows.
+fn gradient(w: u32, h: u32) -> image::RgbImage {
+    let glow = |x: f64, y: f64, cx: f64, cy: f64, r: f64| (-((x - cx).powi(2) + (y - cy).powi(2)) / (r * r)).exp();
+    image::RgbImage::from_fn(w, h, |x, y| {
+        let (u, v) = (x as f64 / w as f64, y as f64 / h as f64 * h as f64 / w as f64);
+        let o = glow(u, v, 0.1, 0.05, 0.55) * 0.55;
+        let b = glow(u, v, 0.92, 0.55, 0.6) * 0.6;
+        let base = [14.0, 14.0, 20.0];
+        let px = [0, 1, 2].map(|k| {
+            let c = base[k] + o * [255.0, 102.0, 0.0][k] * 0.6 + b * [36.0, 84.0, 255.0][k] * 0.6;
+            c.clamp(0.0, 255.0) as u8
+        });
+        image::Rgb(px)
+    })
+}
+
+/// Add the guest scenes, stream screens and Tutorial look if they aren't
+/// there yet.
 pub fn ensure_guest_scenes() {
     let have = list();
-    for t in guest_scenes().into_iter().chain(stream_scenes()) {
+    let tutorial = (!have.iter().any(|h| h.name == tutorial_name())).then(tutorial_scene);
+    for t in guest_scenes().into_iter().chain(stream_scenes()).chain(tutorial) {
         if !have.iter().any(|h| h.name == t.name) {
             let _ = save(&t);
         }

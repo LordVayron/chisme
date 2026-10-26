@@ -38,6 +38,8 @@ use crate::win::gpu::Gpu;
 use crate::win::now;
 use crate::win::matte::Matte;
 use crate::win::overlay::Overlay;
+use crate::tutorial::{Out, Parts};
+use crate::win::input::{Area, Snapshot, Tracker};
 
 /// Audio track layout when both system audio and mic are recorded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
@@ -150,6 +152,8 @@ pub struct LiveState {
     pub chat_pin: Option<(String, String)>,
     /// Media Board files that start again when they end.
     pub media_loop: Vec<String>,
+    /// Tutorial mode.
+    pub tutorial: crate::tutorial::Tutorial,
 }
 
 pub enum Cmd {
@@ -717,6 +721,10 @@ fn resolve(t: &TargetSpec) -> Result<(Target, String)> {
 fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
     let (target, label) = resolve(&cfg.target)?;
     let gpu = Gpu::new()?;
+    let area = match target {
+        Target::Display(h) => Area::Display(h.0 as isize),
+        Target::Window(h) => Area::Window(h.0 as isize),
+    };
     let cap = Capture::start(&gpu, target, cfg.cursor)?;
     let (w, h) = parse_size(&cfg.resolution, (cap.size.0 as usize, cap.size.1 as usize))?;
     let out = (w as u32, h as u32);
@@ -831,6 +839,11 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
     let mut quit = false;
     // Live outputs (streams, replay buffer) and their shared audio mix.
     let mut lives: Vec<LiveOut> = vec![];
+    // Tutorial mode: the mouse and keyboard watcher (while it's on), its
+    // motion, and whether the capture draws the system cursor.
+    let mut tracker: Option<Tracker> = None;
+    let mut tut_state = crate::tutorial::State::default();
+    let mut cap_cursor = cfg.cursor;
     let mut live_mix: Option<Mixer> = None;
     let mut next_live = 0u64;
     let mut saving: Vec<std::thread::JoinHandle<Result<PathBuf>>> = vec![];
@@ -1257,6 +1270,26 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     let m = w.mask.lock().unwrap();
                     (m.seq != vbg_seq).then(|| (m.seq, m.data.clone()))
                 });
+                // Tutorial mode: what each picture gets. The recording and
+                // the stream may differ; then the canvas is drawn once for
+                // each.
+                let tutorial = &live.tutorial;
+                if tutorial.needs_input() && !cfg.test_pattern {
+                    if tracker.is_none() {
+                        tracker = Some(Tracker::start(area));
+                    }
+                } else if tracker.is_some() {
+                    tracker = None;
+                    tut_state = Default::default();
+                }
+                let want_cursor = cfg.cursor && !(tutorial.own_cursor() && tracker.is_some());
+                if want_cursor != cap_cursor {
+                    cap.set_cursor(want_cursor);
+                    cap_cursor = want_cursor;
+                }
+                let (snap, events) = tracker.as_ref().map(|t| t.poll()).unwrap_or_default();
+                let tframe = tut_state.update(t, snap.pos, &events, tutorial.zoom_strength, tutorial.zoom_mode());
+                let passes = plan_passes(tutorial, rec_slot.is_some(), want_preview, &lives);
                 let scene = if cam.is_some() { live.scene } else { Scene::Screen };
                 let switched = live.switch != last_switch;
                 last_switch = live.switch;
@@ -1286,95 +1319,111 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                             m.pass_through(&c.latest);
                         }
                     }
-                    if cfg.test_pattern {
-                        // White for 3 frames from frame fps/2 of each second
-                        // (when the beep starts), else dark.
-                        let mid = cfg.fps as i64 / 2;
-                        let v = if (mid..mid + 3).contains(&(slot % cfg.fps as i64)) { 1.0 } else { 0.08 };
-                        unsafe { gpu.context.ClearRenderTargetView(&pipe.canvas_rtv, &[v, v, v, 1.0]) };
-                    } else if let Some(layout) = &live.layout {
-                        render_layout(&gpu, &mut pipe, &cap, info.content, cam.as_ref().filter(|_| cam_ready), layout, &live.brand, out)?;
-                    } else {
-                        // The screen fitted inside `area` (x, y, w, h).
-                        let place = |area: [f64; 4]| {
-                            let (x, y, w, h) = fit(info.content, (area[2] as u32, area[3] as u32));
-                            (area[0] as u32 + x, area[1] as u32 + y, w, h)
-                        };
-                        match scene {
-                            Scene::Cam | Scene::CamScreen => unsafe { gpu.context.ClearRenderTargetView(&pipe.canvas_rtv, &[0.0, 0.0, 0.0, 1.0]) },
-                            Scene::SideBySide => {
-                                unsafe { gpu.context.ClearRenderTargetView(&pipe.canvas_rtv, &[0.0, 0.0, 0.0, 1.0]) };
-                                let area = crate::compose::side_by_side(out.0 as f64, out.1 as f64).0;
-                                pipe.scale.blit_into(&cap.latest, info.content, &pipe.canvas, place(area))?;
-                            }
-                            _ => pipe.scale.blit(&cap.latest, info.content, &pipe.canvas, fit(info.content, out))?,
-                        }
-                    }
-                    let fixed = live.layout.is_none() && !cfg.test_pattern;
-                    if fixed
-                        && cam_ready
-                        && scene.uses_cam()
-                        && let Some(c) = &cam
-                    {
-                        pipe.overlay.draw(scene, &live.pip, c.size)?;
-                    }
-                    if fixed && scene == Scene::CamScreen {
-                        let aspect = info.content.0 as f64 / info.content.1.max(1) as f64;
-                        let area = crate::compose::screen_box(&live.pip, out.0 as f64, out.1 as f64, aspect);
-                        pipe.scale.blit_into(&cap.latest, info.content, &pipe.canvas, place_exact(area))?;
-                    }
-                    if !cfg.test_pattern {
-                        draw_media(&gpu, &mut pipe, &players, media_image.as_deref(), out)?;
-                        if let Some(pin) = &live.chat_pin {
-                            draw_chat(&gpu, &mut pipe, pin, &live.brand, out)?;
-                        }
-                    }
-                    pipe.blend.apply(&pipe.canvas, t);
                     let main_v = rec.as_ref().is_some_and(|r| r.main_vertical);
-                    let tex = match rec_slot {
-                        Some(_) if !main_v => {
-                            let t = pipe.ring.next();
-                            pipe.nv12.blit(&pipe.canvas, out, &t, (0, 0, out.0, out.1))?;
-                            Some(t)
-                        }
-                        _ => None,
-                    };
+                    let mut tex = None;
                     let mut tex_v = None;
-                    if need_v && let Some(pv) = pipe_v.as_mut() {
+                    for pass in &passes {
+                        let tut = Tut { parts: pass.parts, frame: &tframe, snap: &snap, cursor: cfg.cursor && !cap_cursor, size: tutorial.cursor_size, ring: tutorial.ring_color.unwrap_or(live.brand.primary) };
                         if cfg.test_pattern {
+                            // White for 3 frames from frame fps/2 of each second
+                            // (when the beep starts), else dark.
                             let mid = cfg.fps as i64 / 2;
                             let v = if (mid..mid + 3).contains(&(slot % cfg.fps as i64)) { 1.0 } else { 0.08 };
-                            pv.overlay.clear_to([v, v, v]);
+                            unsafe { gpu.context.ClearRenderTargetView(&pipe.canvas_rtv, &[v, v, v, 1.0]) };
+                        } else if let Some(layout) = &live.layout {
+                            render_layout(&gpu, &mut pipe, &cap, info.content, cam.as_ref().filter(|_| cam_ready), layout, &live.brand, out, &tut)?;
                         } else {
-                            render_layout(&gpu, pv, &cap, info.content, cam.as_ref().filter(|_| cam_ready), &live.vertical, &live.brand, out_v)?;
-                            draw_media(&gpu, pv, &players, media_image.as_deref(), out_v)?;
-                            if let Some(pin) = &live.chat_pin {
-                                draw_chat(&gpu, pv, pin, &live.brand, out_v)?;
+                            // The screen fitted inside `area` (x, y, w, h).
+                            let place = |area: [f64; 4]| {
+                                let (x, y, w, h) = fit(info.content, (area[2] as u32, area[3] as u32));
+                                (area[0] as u32 + x, area[1] as u32 + y, w, h)
+                            };
+                            let src = screen_src(info.content, [0.0, 0.0, 1.0, 1.0], &tut);
+                            match scene {
+                                Scene::Cam | Scene::CamScreen => unsafe { gpu.context.ClearRenderTargetView(&pipe.canvas_rtv, &[0.0, 0.0, 0.0, 1.0]) },
+                                Scene::SideBySide => {
+                                    unsafe { gpu.context.ClearRenderTargetView(&pipe.canvas_rtv, &[0.0, 0.0, 0.0, 1.0]) };
+                                    let area = crate::compose::side_by_side(out.0 as f64, out.1 as f64).0;
+                                    let dst = place(area);
+                                    pipe.scale.blit_rect_into(&cap.latest, src, &pipe.canvas, dst)?;
+                                    draw_pointer(&gpu, &mut pipe, &tut, info.content, src, dst)?;
+                                }
+                                _ => {
+                                    let dst = fit(info.content, out);
+                                    pipe.scale.blit_rect(&cap.latest, src, &pipe.canvas, dst)?;
+                                    draw_pointer(&gpu, &mut pipe, &tut, info.content, src, dst)?;
+                                }
                             }
                         }
-                        pv.blend.apply(&pv.canvas, t);
-                        if rec_slot.is_some() && rec_v {
-                            let t = pv.ring.next();
-                            pv.nv12.blit(&pv.canvas, out_v, &t, (0, 0, out_v.0, out_v.1))?;
-                            tex_v = Some(t);
-                        }
-                        if want_preview && live.vertical_preview {
-                            let ps = pv.preview_size;
-                            pv.preview_blit.blit(&pv.canvas, out_v, &pv.preview_tex, (0, 0, ps.0, ps.1))?;
-                            read_preview(&gpu, pv, shared, true)?;
-                        }
-                    }
-                    if want_preview {
-                        let ps = pipe.preview_size;
-                        pipe.preview_blit.blit(&pipe.canvas, out, &pipe.preview_tex, (0, 0, ps.0, ps.1))?;
-                        read_preview(&gpu, &pipe, shared, false)?;
-                    }
-                    for o in lives.iter_mut() {
-                        let canvas = if o.vertical { pipe_v.as_ref().map(|p| &p.canvas) } else { Some(&pipe.canvas) };
-                        if let Some(c) = canvas
-                            && let Err(e) = o.frame(c, slot, due)
+                        let fixed = live.layout.is_none() && !cfg.test_pattern;
+                        if fixed
+                            && cam_ready
+                            && scene.uses_cam()
+                            && let Some(c) = &cam
                         {
-                            live_failed.push((o.id, format!("{}: {e:#}", o.name)));
+                            pipe.overlay.draw(scene, &live.pip, c.size)?;
+                        }
+                        if fixed && scene == Scene::CamScreen {
+                            let aspect = info.content.0 as f64 / info.content.1.max(1) as f64;
+                            let area = crate::compose::screen_box(&live.pip, out.0 as f64, out.1 as f64, aspect);
+                            let (src, dst) = (screen_src(info.content, [0.0, 0.0, 1.0, 1.0], &tut), place_exact(area));
+                            pipe.scale.blit_rect_into(&cap.latest, src, &pipe.canvas, dst)?;
+                            draw_pointer(&gpu, &mut pipe, &tut, info.content, src, dst)?;
+                        }
+                        if !cfg.test_pattern {
+                            draw_media(&gpu, &mut pipe, &players, media_image.as_deref(), out)?;
+                            if let Some(pin) = &live.chat_pin {
+                                draw_chat(&gpu, &mut pipe, pin, &live.brand, out)?;
+                            }
+                            draw_banner(&gpu, &mut pipe, &tut, out)?;
+                        }
+                        pipe.blend.apply(&pipe.canvas, t);
+                        if pass.rec && rec_slot.is_some() && !main_v {
+                            let t = pipe.ring.next();
+                            pipe.nv12.blit(&pipe.canvas, out, &t, (0, 0, out.0, out.1))?;
+                            tex = Some(t);
+                        }
+                        let pass_v = (pass.rec && rec_slot.is_some() && rec_v) || (pass.preview && want_preview && live.vertical_preview) || lives.iter().any(|o| o.vertical && pass.feeds(o));
+                        if need_v
+                            && pass_v
+                            && let Some(pv) = pipe_v.as_mut()
+                        {
+                            if cfg.test_pattern {
+                                let mid = cfg.fps as i64 / 2;
+                                let v = if (mid..mid + 3).contains(&(slot % cfg.fps as i64)) { 1.0 } else { 0.08 };
+                                pv.overlay.clear_to([v, v, v]);
+                            } else {
+                                render_layout(&gpu, pv, &cap, info.content, cam.as_ref().filter(|_| cam_ready), &live.vertical, &live.brand, out_v, &tut)?;
+                                draw_media(&gpu, pv, &players, media_image.as_deref(), out_v)?;
+                                if let Some(pin) = &live.chat_pin {
+                                    draw_chat(&gpu, pv, pin, &live.brand, out_v)?;
+                                }
+                                draw_banner(&gpu, pv, &tut, out_v)?;
+                            }
+                            pv.blend.apply(&pv.canvas, t);
+                            if pass.rec && rec_slot.is_some() && rec_v {
+                                let t = pv.ring.next();
+                                pv.nv12.blit(&pv.canvas, out_v, &t, (0, 0, out_v.0, out_v.1))?;
+                                tex_v = Some(t);
+                            }
+                            if pass.preview && want_preview && live.vertical_preview {
+                                let ps = pv.preview_size;
+                                pv.preview_blit.blit(&pv.canvas, out_v, &pv.preview_tex, (0, 0, ps.0, ps.1))?;
+                                read_preview(&gpu, pv, shared, true)?;
+                            }
+                        }
+                        if pass.preview && want_preview {
+                            let ps = pipe.preview_size;
+                            pipe.preview_blit.blit(&pipe.canvas, out, &pipe.preview_tex, (0, 0, ps.0, ps.1))?;
+                            read_preview(&gpu, &pipe, shared, false)?;
+                        }
+                        for o in lives.iter_mut().filter(|o| pass.feeds(o)) {
+                            let canvas = if o.vertical { pipe_v.as_ref().map(|p| &p.canvas) } else { Some(&pipe.canvas) };
+                            if let Some(c) = canvas
+                                && let Err(e) = o.frame(c, slot, due)
+                            {
+                                live_failed.push((o.id, format!("{}: {e:#}", o.name)));
+                            }
                         }
                     }
                     Ok((tex, tex_v))
@@ -1503,12 +1552,160 @@ fn draw_chat(gpu: &Gpu, pipe: &mut Pipeline, pin: &(String, String), brand: &Bra
     pipe.overlay.draw_texture_alpha(&srv, size, [1.0, 1.0], Some(rect), &plain, true)
 }
 
+/// One drawing of the canvas, with the Tutorial mode parts some outputs
+/// share. Usually there is one; two when the recording and the stream get
+/// different parts.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Pass {
+    parts: Parts,
+    rec: bool,
+    stream: bool,
+    preview: bool,
+}
+
+impl Pass {
+    /// This pass draws what `o` sends (the replay buffer is a recording).
+    fn feeds(&self, o: &LiveOut) -> bool {
+        if o.platform.is_some() { self.stream } else { self.rec }
+    }
+}
+
+/// The passes this frame needs. The preview shows what the recording gets
+/// while recording, else what the stream gets while live, else everything
+/// that is on.
+fn plan_passes(t: &crate::tutorial::Tutorial, recording: bool, preview: bool, lives: &[LiveOut]) -> Vec<Pass> {
+    let streaming = lives.iter().any(|o| o.platform.is_some());
+    let rec_like = recording || lives.iter().any(|o| o.platform.is_none());
+    let (r, s) = (t.parts(Out::Recording), t.parts(Out::Stream));
+    let pv = if rec_like { r } else if streaming { s } else { t.all() };
+    let mut passes: Vec<Pass> = vec![];
+    let mut add = |parts: Parts, f: &dyn Fn(&mut Pass)| match passes.iter_mut().find(|p| p.parts == parts) {
+        Some(p) => f(p),
+        None => {
+            let mut p = Pass { parts, ..Default::default() };
+            f(&mut p);
+            passes.push(p);
+        }
+    };
+    add(r, &|p| p.rec = true);
+    add(s, &|p| p.stream = true);
+    add(pv, &|p| p.preview = true);
+    passes.retain(|p| (p.rec && rec_like) || (p.stream && streaming) || (p.preview && preview));
+    passes
+}
+
+/// Tutorial mode's drawing for one pass.
+struct Tut<'a> {
+    parts: Parts,
+    frame: &'a crate::tutorial::Frame,
+    snap: &'a Snapshot,
+    /// Chisme draws the cursor (the capture's own is off).
+    cursor: bool,
+    /// The big cursor's size.
+    size: f64,
+    /// The click ring's color.
+    ring: [u8; 3],
+}
+
+/// The part of the capture a screen shows (pixels), from its `crop`
+/// (fractions), zoomed in by Tutorial mode when it is.
+fn screen_src(content: (u32, u32), crop: [f64; 4], tut: &Tut) -> (u32, u32, u32, u32) {
+    let f = tut.frame;
+    let c = if tut.parts.zoom && f.zoom > 1.001 { crate::tutorial::zoom_crop(crop, f.center, f.zoom) } else { crop };
+    let (w, h) = (content.0 as f64, content.1 as f64);
+    let (x, y) = ((c[0] * w).round().max(0.0) as u32, (c[1] * h).round().max(0.0) as u32);
+    let cw = ((c[2] * w).round() as u32).clamp(2, content.0.saturating_sub(x).max(2));
+    let ch = ((c[3] * h).round() as u32).clamp(2, content.1.saturating_sub(y).max(2));
+    (x, y, cw, ch)
+}
+
+/// Click rings and the cursor over a screen picture: `src` is the part of
+/// the capture shown (pixels), drawn at `dst` (canvas pixels).
+fn draw_pointer(gpu: &Gpu, pipe: &mut Pipeline, tut: &Tut, content: (u32, u32), src: (u32, u32, u32, u32), dst: (u32, u32, u32, u32)) -> Result<()> {
+    let (s, d) = ([src.0, src.1, src.2, src.3].map(|v| v as f64), [dst.0, dst.1, dst.2, dst.3].map(|v| v as f64));
+    // Canvas pixels per captured pixel.
+    let k = d[2] / s[2].max(1.0);
+    let to = |p: [f64; 2]| [d[0] + (p[0] * content.0 as f64 - s[0]) * k, d[1] + (p[1] * content.1 as f64 - s[1]) * k];
+    let shown = |q: [f64; 2]| q[0] >= d[0] && q[0] <= d[0] + d[2] && q[1] >= d[1] && q[1] <= d[1] + d[3];
+    if tut.parts.clicks && !tut.frame.clicks.is_empty() {
+        let key = format!("ring:{:?}", tut.ring);
+        if let Some((_, srv)) = picture(gpu, pipe, &key, || Some(ring_picture(tut.ring))) {
+            let big = content.1 as f64 * 0.032 * k;
+            for (p, prog) in &tut.frame.clicks {
+                let (r, a) = crate::tutorial::ring(*prog);
+                let c = to(*p);
+                if shown(c) {
+                    pipe.overlay.draw_sprite(&srv, [c[0] - r * big, c[1] - r * big, 2.0 * r * big, 2.0 * r * big], a)?;
+                }
+            }
+        }
+    }
+    if tut.cursor
+        && let Some(sp) = &tut.snap.sprite
+    {
+        let big = tut.parts.big_cursor;
+        let pos = if tut.parts.smooth_cursor { tut.frame.smooth } else { tut.frame.cursor };
+        let alpha = if big { tut.frame.cursor_alpha } else { 1.0 };
+        if let Some(p) = pos
+            && alpha > 0.0
+            && shown(to(p))
+        {
+            // Screen pixels to captured pixels (a scaled capture), then canvas.
+            let sc = if tut.snap.area_w > 0.0 { content.0 as f64 / tut.snap.area_w } else { 1.0 };
+            let m = sc * k * if big { tut.size.clamp(1.0, 4.0) } else { 1.0 };
+            let (w, h) = (sp.base.0 * m, sp.base.1 * m);
+            let c = to(p);
+            let key = format!("cur:{}", sp.id);
+            if let Some((_, srv)) = picture(gpu, pipe, &key, || Some((sp.size.0, sp.size.1, sp.px.clone()))) {
+                pipe.overlay.draw_sprite(&srv, [c[0] - sp.hot.0 * w, c[1] - sp.hot.1 * h, w, h], alpha)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The shortcut banner, centered near the bottom.
+fn draw_banner(gpu: &Gpu, pipe: &mut Pipeline, tut: &Tut, out: (u32, u32)) -> Result<()> {
+    let Some((keys, alpha)) = tut.frame.banner.as_ref().filter(|_| tut.parts.keys) else { return Ok(()) };
+    let (ow, oh) = (out.0 as f64, out.1 as f64);
+    let h = (oh.min(ow) * 0.075).round().max(16.0) as usize;
+    let key = format!("keys:{keys}|{h}");
+    let Some((size, srv)) = picture(gpu, pipe, &key, || {
+        let c = crate::brand::key_banner(keys, h);
+        Some((c.w as u32, c.h as u32, c.px))
+    }) else {
+        return Ok(());
+    };
+    let (w, h) = (size.0 as f64, size.1 as f64);
+    pipe.overlay.draw_sprite(&srv, [((ow - w) / 2.0).round(), (oh * 0.86 - h).round(), w, h], *alpha)
+}
+
+/// A click ring in `color`: a soft filled disc with a solid edge, RGBA.
+fn ring_picture(color: [u8; 3]) -> (u32, u32, Vec<u8>) {
+    let n = 128usize;
+    let mut px = vec![0u8; n * n * 4];
+    let c = n as f64 / 2.0;
+    for y in 0..n {
+        for x in 0..n {
+            let d = ((x as f64 + 0.5 - c).powi(2) + (y as f64 + 0.5 - c).powi(2)).sqrt();
+            // Edge between radius 52 and 61, anti-aliased; fill inside.
+            let edge = ((d - 52.0 + 0.5).clamp(0.0, 1.0)) * ((61.5 - d).clamp(0.0, 1.0));
+            let fill = if d < 52.0 { 0.22 } else { 0.0 };
+            let a = edge.max(fill);
+            let i = (y * n + x) * 4;
+            px[i..i + 3].copy_from_slice(&color);
+            px[i + 3] = (a * 255.0).round() as u8;
+        }
+    }
+    (n as u32, n as u32, px)
+}
+
 /// Draw a custom layout: the background, then each visible layer bottom to
 /// top. A screen layer is scaled into a box-sized texture by the video
 /// processor (sharp text), then drawn with its shape and border like the
 /// camera.
 #[allow(clippy::too_many_arguments)]
-fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u32), cam: Option<&Camera>, layout: &Layout, brand: &Brand, out: (u32, u32)) -> Result<()> {
+fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u32), cam: Option<&Camera>, layout: &Layout, brand: &Brand, out: (u32, u32), tut: &Tut) -> Result<()> {
     let bg = layout.background.map(|c| c as f32 / 255.0);
     pipe.overlay.clear_to(bg);
     if let Some(path) = &layout.background_image {
@@ -1532,8 +1729,7 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 let size = ((r[2] as u32).max(2) & !1, (r[3] as u32).max(2) & !1);
                 // The crop happens in the scaler (sharp text), so the draw
                 // below shows the whole of what it made.
-                let [cx, cy, cw, ch] = fx.crop;
-                let sub = (((cx * content.0 as f64) as u32), ((cy * content.1 as f64) as u32), ((cw * content.0 as f64) as u32).max(2), ((ch * content.1 as f64) as u32).max(2));
+                let sub = screen_src(content, fx.crop, tut);
                 let crop = if layer.fill {
                     let c = crop_to((sub.2, sub.3), size.0 as f64 / size.1 as f64);
                     (sub.0 + c.0, sub.1 + c.1, c.2, c.3)
@@ -1556,6 +1752,7 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 let (tex, srv) = (pipe.layer_tex[i].1.clone(), pipe.layer_tex[i].2.clone());
                 pipe.scale.blit_sized(&cap.latest, crop, &tex, size)?;
                 pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some([r[0], r[1], size.0 as f64, size.1 as f64]), &style, false, &fx)?;
+                draw_pointer(gpu, pipe, tut, content, crop, (r[0] as u32, r[1] as u32, size.0, size.1))?;
             }
             LayerSource::Camera => {
                 let (Some(c), Some(srv)) = (cam, pipe.overlay.cam()) else {
@@ -1640,7 +1837,7 @@ fn picture(gpu: &Gpu, pipe: &mut Pipeline, key: &str, make: impl FnOnce() -> Opt
         gpu.locked(|| unsafe { gpu.context.UpdateSubresource(&tex, 0, None, px.as_ptr() as _, w * 4, 0) });
         Some(((w, h), Overlay::srv_of(gpu, &tex).ok()?))
     });
-    if pipe.pictures.len() >= 24 {
+    if pipe.pictures.len() >= 48 {
         pipe.pictures.remove(0);
     }
     pipe.pictures.push((key.to_string(), made.clone()));

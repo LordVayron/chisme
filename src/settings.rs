@@ -135,6 +135,11 @@ pub struct Settings {
     pub hotkeys: Hotkeys,
     /// Virtual background behind the webcam.
     pub vbg: crate::vbg::VirtualBackground,
+    /// Tutorial mode: click rings, bigger and smoother cursor, auto zoom,
+    /// shortcut banner.
+    pub tutorial: crate::tutorial::Tutorial,
+    /// Studio page: the Tutorial mode card folded to its title.
+    pub fold_tutorial: bool,
     /// Window to record instead of a display (not saved: handles change).
     #[serde(skip)]
     pub window: Option<(usize, String)>,
@@ -168,6 +173,10 @@ pub struct Hotkeys {
     pub replay: String,
     pub prompter: String,
     pub prompter_play: String,
+    /// Pause or resume Tutorial mode's auto zoom.
+    pub zoom: String,
+    /// Hold Tutorial mode's zoom where it is, or release it.
+    pub hold: String,
     pub templates: String,
     pub media: String,
     pub studios: String,
@@ -182,6 +191,8 @@ impl Default for Hotkeys {
             replay: "Ctrl+Shift+S".into(),
             prompter: "Ctrl+Shift+T".into(),
             prompter_play: "Ctrl+Shift+Space".into(),
+            zoom: "Ctrl+Alt+Z".into(),
+            hold: "Ctrl+Alt+H".into(),
             templates: "Ctrl+Shift".into(),
             media: "Ctrl+Alt".into(),
             studios: "Alt+Shift".into(),
@@ -300,6 +311,8 @@ impl Default for Settings {
             language: crate::i18n::Lang::En,
             hotkeys: Hotkeys::default(),
             vbg: Default::default(),
+            tutorial: Default::default(),
+            fold_tutorial: true,
             window: None,
         }
     }
@@ -472,6 +485,7 @@ impl Settings {
             switch: self.switch,
             chat_pin: self.chat_pin.clone(),
             media_loop: self.media.iter().filter(|m| m.looped).map(|m| m.path.clone()).collect(),
+            tutorial: self.tutorial.clone(),
         }
     }
 

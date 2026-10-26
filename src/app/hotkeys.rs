@@ -17,6 +17,10 @@ pub enum Action {
     Replay,
     Prompter,
     PrompterPlay,
+    /// Pause or resume Tutorial mode's auto zoom.
+    Zoom,
+    /// Hold Tutorial mode's zoom where it is, or release it.
+    Hold,
     /// Apply template 1…9 (0-based).
     Template(usize),
     /// Fire Media Board tile 1…9 (0-based).
@@ -27,7 +31,7 @@ pub enum Action {
 
 impl Action {
     /// The actions with a combo of their own.
-    pub const SINGLE: [Action; 6] = [Action::Record, Action::Pause, Action::Marker, Action::Replay, Action::Prompter, Action::PrompterPlay];
+    pub const SINGLE: [Action; 8] = [Action::Record, Action::Pause, Action::Marker, Action::Replay, Action::Prompter, Action::PrompterPlay, Action::Zoom, Action::Hold];
 
     pub fn label(self) -> String {
         match self {
@@ -37,6 +41,8 @@ impl Action {
             Action::Replay => l("Save replay", "Guardar replay").into(),
             Action::Prompter => l("Teleprompter on / off", "Teleprompter sí / no").into(),
             Action::PrompterPlay => l("Teleprompter play / pause", "Teleprompter play / pausa").into(),
+            Action::Zoom => l("Auto zoom pause / resume", "Zoom automático pausa / sigue").into(),
+            Action::Hold => l("Hold zoom / release", "Fijar zoom / soltar").into(),
             Action::Template(i) => crate::t!("Template {}", "Plantilla {}", i + 1),
             Action::Media(i) => crate::t!("Media Board tile {}", "Media Board, tarjeta {}", i + 1),
             Action::Studio(i) => crate::t!("Studio {}", "Studio {}", i + 1),
@@ -63,6 +69,8 @@ impl Action {
             Action::Replay => &mut h.replay,
             Action::Prompter => &mut h.prompter,
             Action::PrompterPlay => &mut h.prompter_play,
+            Action::Zoom => &mut h.zoom,
+            Action::Hold => &mut h.hold,
             Action::Template(_) => &mut h.templates,
             Action::Media(_) => &mut h.media,
             Action::Studio(_) => &mut h.studios,

@@ -83,6 +83,35 @@ the people on stage in the order you brought them on. You can pin them to quick 
 a **+ Guest** layer to any scene. The green room page is `docs/join/` in this repo, served by
 GitHub Pages.
 
+## Tutorial mode
+
+The Tutorial mode card on the Studio page adds tutorial polish live, while you record or stream
+(nothing to edit afterwards). One main switch turns it on; each part has its own switch and goes to
+the recording, the stream or both:
+
+- **Click effects:** a ring in the brand's primary color on each click.
+- **Bigger cursor:** 1.2x to 3x, faded out after 2 seconds without moving.
+- **Auto zoom:** a click (or typing) zooms the Screen layer in around that point; while zoomed, the
+  view follows the cursor when it nears an edge, and it zooms back out 2.5 s after the last click
+  (3 s after typing). Strength is 1.2x to 3x. Typing zooms on the text cursor when the app reports
+  one, else where you last clicked.
+- **Smooth cursor:** the capture's own cursor is turned off and Chisme draws the cursor picture
+  itself, gliding toward the real position.
+- **Shortcut banner:** shows combinations with Ctrl, Alt or Win (plus Shift) near the bottom. Keys
+  pressed without them only count as "typing" for the zoom; their names are never kept or shown.
+
+How it works: `win/input.rs` watches the mouse and keyboard on a worker thread (cursor position
+and picture, button and key state), as fractions of the captured display or window. `tutorial.rs`
+turns that into motion with critically damped springs (eased, no overshoot, the same at any frame
+rate) and keeps the zoom window inside the picture and inside the layer's own crop. The engine
+applies the zoom as the Screen layer's crop, then draws rings, cursor and banner on the canvas.
+When the recording and the stream get different parts, the canvas is drawn once for each. The
+preview shows what the recording gets while recording, else what the stream gets while live.
+
+Tests can script the mouse and keyboard with
+`CHISME_FAKE_INPUT="secs:x,y[,click|,type|,key=Ctrl+S];…"` (x, y as fractions of the picture), for
+example with `chisme record --window <handle> --tutorial`.
+
 ## Automatic subtitles (Whisper)
 
 Chisme writes an `.srt` next to a recording with whisper.cpp (`whisper-rs`), entirely on this PC.

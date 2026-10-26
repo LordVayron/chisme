@@ -192,6 +192,10 @@ struct RecordArgs {
     /// audio, to check A/V sync with scripts/synccheck.py.
     #[arg(long)]
     test_pattern: bool,
+    /// Tutorial mode: click rings, a bigger and smoother cursor, auto zoom
+    /// and a shortcut banner.
+    #[arg(long)]
+    tutorial: bool,
 }
 
 /// `youtube`, `twitch`, `tiktok=URL`, `x=URL`, `custom=URL` or a bare URL.
@@ -296,7 +300,7 @@ fn record(a: RecordArgs) -> Result<()> {
     };
     let scene = a.scene.unwrap_or_default();
     let vertical = layout.clone().unwrap_or_else(|| chisme::layout::Layout::from_scene(scene, &pip, 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0)).to_vertical();
-    let live = LiveState { scene, pip, gain_db: [a.system_gain, a.mic_gain], muted: [false; 2], media_gain_db: 0.0, media_muted: false, layout, brand, vbg, vertical, vertical_preview: false, output: aspect, transition: Default::default(), switch: 0, chat_pin: None, media_loop: vec![] };
+    let live = LiveState { scene, pip, gain_db: [a.system_gain, a.mic_gain], muted: [false; 2], media_gain_db: 0.0, media_muted: false, layout, brand, vbg, vertical, vertical_preview: false, output: aspect, transition: Default::default(), switch: 0, chat_pin: None, media_loop: vec![], tutorial: chisme::tutorial::Tutorial { enabled: a.tutorial, ..Default::default() } };
     let engine = Engine::start(cfg, live);
     engine.shared.preview_on.store(false, std::sync::atomic::Ordering::Relaxed);
 

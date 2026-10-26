@@ -13,6 +13,7 @@ pub mod encoder;
 pub mod gpu;
 pub mod matte;
 pub mod h264;
+pub mod input;
 pub mod overlay;
 pub mod sources;
 pub mod transition;

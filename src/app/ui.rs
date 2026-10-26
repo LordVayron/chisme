@@ -303,6 +303,7 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
     let editing = !cam_fold && app.settings.layout.is_some() && app.settings.template.is_none();
     let narrow = area.width() < 1100.0 && !(editing && area.width() >= 820.0);
     let media_h = 158.0;
+    let tut_h = super::tutorial_ui::height(app);
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().id_salt("studio-page").auto_shrink([false; 2]).show(ui, |ui| {
             let w = area.width() - 4.0;
@@ -314,7 +315,7 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 let stacked = w < 640.0;
                 let cards_h = if stacked { audio_h + 16.0 + side_h } else { audio_h.max(side_h) };
                 let chat_h = if !live { -16.0 } else if app.settings.fold_chat { FOLDED_H } else { 300.0 };
-                let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + cards_h + chat_h + media_h + 48.0), Sense::hover());
+                let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + cards_h + tut_h + 16.0 + chat_h + media_h + 48.0), Sense::hover());
                 let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
                 let y2 = preview_card.bottom() + 16.0;
                 let (audio_card, cam_card) = if stacked {
@@ -322,11 +323,13 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 } else {
                     (Rect::from_min_size(pos2(all.left(), y2), vec2(half, audio_h)), Rect::from_min_size(pos2(all.left() + half + 16.0, y2), vec2(half, side_h)))
                 };
-                let chat_card = Rect::from_min_size(pos2(all.left(), y2 + cards_h + 16.0), vec2(w, chat_h));
+                let tut_card = Rect::from_min_size(pos2(all.left(), y2 + cards_h + 16.0), vec2(w, tut_h));
+                let chat_card = Rect::from_min_size(pos2(all.left(), tut_card.bottom() + 16.0), vec2(w, chat_h));
                 let media = Rect::from_min_size(pos2(all.left(), chat_card.bottom() + 16.0), vec2(w, media_h));
                 preview(app, ui, preview_card);
                 audio(app, ui, audio_card);
                 side_card(app, ui, cam_card);
+                super::tutorial_ui::card(app, ui, tut_card);
                 if live {
                     super::chat_ui::card(app, ui, chat_card);
                 }
@@ -348,7 +351,7 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 } else {
                     ((base - audio_h - 32.0) * 0.45).clamp(160.0, 320.0).floor()
                 };
-                let chat_gap = if live { chat_h + 16.0 } else { 0.0 };
+                let chat_gap = (if live { chat_h + 16.0 } else { 0.0 }) + tut_h + 16.0;
                 let (flex_min, fixed) = if editing {
                     (LAYERS_MIN, audio_h + 16.0 + chat_gap)
                 } else if cam_fold {
@@ -375,18 +378,21 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                     y += h + 16.0;
                     r
                 };
-                let (audio_card, cam_card, chat_card) = if editing {
+                let (audio_card, cam_card, tut_card, chat_card) = if editing {
                     let lc = next(flex);
                     let ac = next(audio_h);
-                    (ac, lc, next(chat_h))
+                    let tc = next(tut_h);
+                    (ac, lc, tc, next(chat_h))
                 } else {
                     let ac = next(audio_h);
+                    let tc = next(tut_h);
                     let cc = next(if cam_fold { FOLDED_H } else { flex });
-                    (ac, cc, next(chat_h))
+                    (ac, cc, tc, next(chat_h))
                 };
                 preview(app, ui, preview_card);
                 audio(app, ui, audio_card);
                 side_card(app, ui, cam_card);
+                super::tutorial_ui::card(app, ui, tut_card);
                 if live {
                     super::chat_ui::card(app, ui, chat_card);
                 }
@@ -1874,7 +1880,7 @@ fn section(ui: &mut Ui, rect: Rect, title: &str, add: impl FnOnce(&mut Ui)) {
     ui.scope_builder(UiBuilder::new().max_rect(Rect::from_min_max(rect.min + vec2(22.0, 54.0), rect.max - vec2(22.0, 14.0))), add);
 }
 
-fn combo<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, options: &[(T, String)], width: f32) -> bool {
+pub(super) fn combo<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, options: &[(T, String)], width: f32) -> bool {
     let sel = options.iter().find(|(v, _)| v == current).map(|(_, l)| l.clone()).unwrap_or_else(|| "—".into());
     let mut changed = false;
     ComboBox::from_id_salt(id).width(width).selected_text(sel).show_ui(ui, |ui| {

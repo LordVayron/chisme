@@ -24,5 +24,6 @@ pub mod size;
 pub mod subtitles;
 pub mod templates;
 pub mod timeline;
+pub mod tutorial;
 pub mod vbg;
 pub mod win;

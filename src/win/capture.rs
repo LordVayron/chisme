@@ -18,6 +18,7 @@ use windows::core::{IInspectable, Interface};
 use super::gpu::Gpu;
 use super::{SendBox, now};
 
+#[derive(Clone, Copy)]
 pub enum Target {
     Display(HMONITOR),
     Window(HWND),
@@ -95,6 +96,11 @@ impl Capture {
         let _ = session.SetIsBorderRequired(false);
         session.StartCapture()?;
         Ok(Capture { size, latest, info, session, pool, _item: item })
+    }
+
+    /// Show or hide the system cursor in the picture, while running.
+    pub fn set_cursor(&self, on: bool) {
+        let _ = self.session.SetIsCursorCaptureEnabled(on);
     }
 
     pub fn info(&self) -> FrameInfo {
