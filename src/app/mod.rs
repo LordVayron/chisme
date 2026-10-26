@@ -412,6 +412,12 @@ impl App {
                 self.settings_changed();
                 self.toast(if paused { l("Auto zoom paused", "Zoom automático en pausa") } else { l("Auto zoom on", "Zoom automático activo") });
             }
+            Action::Hold => {
+                let held = !self.settings.tutorial.zoom_held;
+                self.settings.tutorial.zoom_held = held;
+                self.settings_changed();
+                self.toast(if held { l("Zoom held", "Zoom fijo") } else { l("Zoom released", "Zoom suelto") });
+            }
             Action::Template(i) => {
                 if let Some(t) = self.templates.get(i).cloned() {
                     self.apply_template(&t);

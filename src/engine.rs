@@ -1288,7 +1288,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     cap_cursor = want_cursor;
                 }
                 let (snap, events) = tracker.as_ref().map(|t| t.poll()).unwrap_or_default();
-                let tframe = tut_state.update(t, snap.pos, &events, tutorial.zoom_strength, !tutorial.zoom_paused);
+                let tframe = tut_state.update(t, snap.pos, &events, tutorial.zoom_strength, tutorial.zoom_mode());
                 let passes = plan_passes(tutorial, rec_slot.is_some(), want_preview, &lives);
                 let scene = if cam.is_some() { live.scene } else { Scene::Screen };
                 let switched = live.switch != last_switch;
