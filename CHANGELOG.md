@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Shortcuts for studios: Alt+Shift+1…9 switches to studio 1…9 (change it in Settings → Shortcuts). The studio picker shows each one's shortcut.
+- Drag a scene in the bar under the preview to change its place.
+
 ### Changed
 - Virtual background: a second, more precise model (MODNet, downloaded once, 26 MB, the first time you use a virtual background) checks a few times a second where you can't be, so desks, lamps and walls the fast model mistakes for you are cut out. The fast model still follows you frame by frame.
 

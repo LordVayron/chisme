@@ -616,6 +616,7 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
         let combo = Rect::from_min_size(pos2(if show_pins { seg.left() } else { custom_box.left() } - 10.0 - combo_w, cy - 15.0), vec2(combo_w, 30.0));
         if combo.left() > out_r.right() + 6.0 {
             let names: Vec<String> = app.settings.studios.iter().map(|s| s.name.clone()).collect();
+            let keys: Vec<String> = (0..names.len()).map(|i| if i < 9 { super::hotkeys::Action::Studio(i).combo(&app.settings.hotkeys) } else { String::new() }).collect();
             let cur = app.settings.studio;
             let mut pick = None;
             ui.scope_builder(UiBuilder::new().max_rect(combo), |ui| {
@@ -624,7 +625,8 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                     .selected_text(egui::RichText::new(names.get(cur).cloned().unwrap_or_default()).size(13.0))
                     .show_ui(ui, |ui| {
                         for (i, name) in names.iter().enumerate() {
-                            if ui.selectable_label(i == cur, name).clicked() {
+                            let label = if keys[i].is_empty() { name.clone() } else { format!("{name}    {}", keys[i]) };
+                            if ui.selectable_label(i == cur, label).clicked() {
                                 pick = Some(i);
                             }
                         }
@@ -656,7 +658,33 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                     Some(Pin::Template(n)) => t!("Template: {}", "Plantilla: {}", n),
                     None => l("Custom: move and resize the layers", "Personalizado: mueve y ajusta las capas").to_string(),
                 };
-                let resp = ui.interact(r, Id::new(("pin", i)), Sense::click()).on_hover_text(tip).on_hover_cursor(CursorIcon::PointingHand);
+                let draggable = i < pins.len();
+                let resp = ui.interact(r, Id::new(("pin", i)), if draggable { Sense::click_and_drag() } else { Sense::click() }).on_hover_text(tip).on_hover_cursor(CursorIcon::PointingHand);
+                // Drag a scene to another place in the bar.
+                if draggable {
+                    if resp.drag_started() {
+                        app.pin_drag = Some(i);
+                    }
+                    let to = ui.ctx().pointer_interact_pos().map(|pos| (((pos.x - seg.left()) / tw).floor().max(0.0) as usize).min(pins.len() - 1));
+                    if resp.dragged() && app.pin_drag == Some(i) {
+                        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+                        if let Some(j) = to.filter(|j| *j != i) {
+                            let x = if j > i { seg.left() + tw * (j + 1) as f32 - 2.0 } else { seg.left() + tw * j as f32 + 2.0 };
+                            p.line_segment([pos2(x, seg.top() + 6.0), pos2(x, seg.bottom() - 6.0)], Stroke::new(3.0, ORANGE));
+                        }
+                    }
+                    if resp.drag_stopped() && app.pin_drag == Some(i) {
+                        app.pin_drag = None;
+                        if let Some(j) = to.filter(|j| *j != i) {
+                            let v = &mut app.settings.pinned;
+                            if let (Some(a), Some(b)) = (v.iter().position(|q| *q == pins[i]), v.iter().position(|q| *q == pins[j])) {
+                                let moved = v.remove(a);
+                                v.insert(b, moved);
+                                let _ = app.settings.save();
+                            }
+                        }
+                    }
+                }
                 let sel = match pin {
                     Some(Pin::Scene(s)) => !custom && app.settings.scene == *s,
                     Some(Pin::Template(n)) => custom && app.settings.template.as_deref() == Some(n.as_str()),
@@ -1636,7 +1664,7 @@ fn settings(app: &mut App, ui: &mut Ui, area: Rect) {
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             let width = area.width() - 14.0;
-            let (h1, h2, h3, h4) = (276.0, 308.0, 150.0, 340.0);
+            let (h1, h2, h3, h4) = (276.0, 308.0, 150.0, 380.0);
             let one = width < 900.0;
             let col_w = if one { width } else { (width - 16.0) / 2.0 };
             let total = if one { 2.0 * (h1 + h2 + h3) + h4 + 112.0 } else { h1 + h2 + h3 + h4 + 48.0 };
@@ -1938,6 +1966,7 @@ fn shortcuts_section(app: &mut App, ui: &mut Ui, rect: Rect) {
                 for (label, which, slot) in [
                     (l("Templates 1–9", "Plantillas 1–9"), Action::Template(0), 0),
                     (l("Media Board tiles 1–9", "Media Board, tarjetas 1–9"), Action::Media(0), 1),
+                    (l("Studios 1–9", "Studios 1–9"), Action::Studio(0), 2),
                 ] {
                     ui.horizontal(|ui| {
                         ui.set_min_height(34.0);
@@ -1952,7 +1981,7 @@ fn shortcuts_section(app: &mut App, ui: &mut Ui, rect: Rect) {
                             }
                         });
                     });
-                    let taken: Vec<String> = app.hotkeys.taken.iter().filter(|t| matches!((t, slot), (Action::Template(_), 0) | (Action::Media(_), 1))).map(|t| t.combo(&app.settings.hotkeys)).collect();
+                    let taken: Vec<String> = app.hotkeys.taken.iter().filter(|t| matches!((t, slot), (Action::Template(_), 0) | (Action::Media(_), 1) | (Action::Studio(_), 2))).map(|t| t.combo(&app.settings.hotkeys)).collect();
                     if !taken.is_empty() {
                         ui.label(egui::RichText::new(t!("Taken by another app: {}", "Ocupados por otra app: {}", taken.join(", "))).color(ORANGE).size(11.5));
                     }
