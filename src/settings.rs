@@ -53,6 +53,8 @@ pub struct Settings {
     pub fold_chat: bool,
     /// Custom layouts can't be moved on the previews while locked.
     pub layout_locked: bool,
+    /// The same for the 9:16 layout.
+    pub layout_locked_v: bool,
     /// Quick-access scenes and templates under the preview, in order.
     pub pinned: Vec<Pin>,
     /// Studios: named sets of scenes. The active one's scenes are `pinned`
@@ -249,6 +251,7 @@ impl Default for Settings {
             fold_chat: false,
             media_strip: vec![],
             layout_locked: false,
+            layout_locked_v: false,
             pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),
             studios: vec![],
             studio: 0,

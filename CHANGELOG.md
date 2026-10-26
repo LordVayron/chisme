@@ -8,7 +8,8 @@ and versions follow [Semantic Versioning](https://semver.org).
 ### Added
 - Shortcuts for studios: Alt+Shift+1…9 switches to studio 1…9 (change it in Settings → Shortcuts). The studio picker shows each one's shortcut.
 - Drag a scene in the bar under the preview to change its place.
-- Lock for Custom layouts: the Locked / Unlocked button next to View keeps layers from moving by accident on the previews.
+- Locks for Custom layouts, one for 16:9 and one for 9:16 (next to View): a locked layout's layers can't be moved by accident on its preview.
+- "Save layout" at the top of the Layers card saves the Custom layout (16:9 and 9:16) as a template in the studio you're in.
 - Studio page Media Board: it shows only what you pin (the pin on each Media Board tile), in your order. Its Edit button lets you drag them into place, take them off and pick a color for each sound. Sounds are colored pads, lit while they play.
 - Templates page: "+ Add" on each template card puts it in the studio you have selected ("✓ In studio" takes it out).
 
@@ -17,6 +18,7 @@ and versions follow [Semantic Versioning](https://semver.org).
 - Choosing a studio on the Templates page shows only its templates; "See all" shows every one.
 - A "View: 16:9 | 9:16 | Both" switch under the preview replaces the small 16:9 and 9:16 buttons on the pictures.
 - When the window is narrow, the scenes move to their own row under Record instead of disappearing.
+- In a smaller window the Layers card keeps the room it needs (picture, shape, border…) and the page scrolls instead.
 
 ### Fixed
 - Looping clips and sounds play again with no gap: the next pass is ready before the current one ends, so the picture never goes black between them.

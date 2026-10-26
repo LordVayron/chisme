@@ -303,7 +303,7 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
             if narrow {
                 let pv_h = (w * 9.0 / 16.0 + 96.0).max(330.0);
                 let audio_h = if audio_fold { FOLDED_H } else { 240.0 };
-                let side_h = if cam_fold { FOLDED_H } else { 380.0 };
+                let side_h = if cam_fold { FOLDED_H } else if app.settings.layout.is_some() && app.settings.template.is_none() { LAYERS_MIN.max(380.0) } else { 380.0 };
                 let half = ((w - 16.0) / 2.0).floor();
                 let stacked = w < 640.0;
                 let cards_h = if stacked { audio_h + 16.0 + side_h } else { audio_h.max(side_h) };
@@ -324,22 +324,31 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 super::chat_ui::card(app, ui, chat_card);
                 super::media_ui::strip(app, ui, media);
             } else {
-                let total = area.height().max(660.0);
+                let base = area.height().max(660.0);
+                let top_h = base - media_h - 16.0;
+                // The layer editor needs room for its settings: when the
+                // window is short, the right column grows and the page
+                // scrolls instead of squeezing it.
+                let layers = !cam_fold && app.settings.layout.is_some() && app.settings.template.is_none();
+                let audio_h0 = if audio_fold { FOLDED_H } else { (top_h * 0.36).clamp(200.0, 260.0).floor() };
+                let chat_min = if app.settings.fold_chat { FOLDED_H } else { 180.0 };
+                let right_h = if layers { top_h.max(audio_h0 + 16.0 + LAYERS_MIN + 16.0 + chat_min) } else { top_h };
+                let total = right_h + media_h + 16.0;
                 let (all, _) = ui.allocate_exact_size(vec2(w, total), Sense::hover());
-                let top = Rect::from_min_max(all.min, pos2(all.right(), all.bottom() - media_h - 16.0));
+                let top = Rect::from_min_size(all.min, vec2(w, top_h));
                 // The 9:16 preview, when on, widens the preview card by its own
                 // column; the 16:9 picture keeps its size.
                 let vcol = if app.settings.vertical_preview && app.settings.horizontal_preview { ((top.height() - 24.0 - 64.0 - 30.0) * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
                 let left_w = ((w * 0.64).floor() + vcol).min(w - 16.0 - 380.0);
                 let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
-                let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
-                let audio_h = if audio_fold { FOLDED_H } else { (right.height() * 0.36).clamp(200.0, 260.0).floor() };
+                let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), pos2(top.right(), top.top() + right_h));
+                let audio_h = audio_h0;
                 let audio_card = Rect::from_min_size(right.min, vec2(right.width(), audio_h));
                 // Camera takes what Chat leaves (or the other way round when
                 // Camera is folded).
                 let cam_top = audio_card.bottom() + 16.0;
                 let chat_fold = app.settings.fold_chat;
-                let chat_h = if chat_fold { FOLDED_H } else if cam_fold { (right.bottom() - cam_top - FOLDED_H - 16.0).max(FOLDED_H) } else { ((right.bottom() - cam_top) * 0.45).clamp(160.0, 320.0).floor() };
+                let chat_h = if chat_fold { FOLDED_H } else if layers { (right.bottom() - cam_top - 16.0 - LAYERS_MIN).clamp(chat_min, 320.0).floor() } else if cam_fold { (right.bottom() - cam_top - FOLDED_H - 16.0).max(FOLDED_H) } else { ((right.bottom() - cam_top) * 0.45).clamp(160.0, 320.0).floor() };
                 let chat_card = Rect::from_min_max(pos2(right.left(), right.bottom() - chat_h), right.max);
                 let cam_card = if cam_fold { Rect::from_min_size(pos2(right.left(), cam_top), vec2(right.width(), FOLDED_H)) } else { Rect::from_min_max(pos2(right.left(), cam_top), pos2(right.right(), chat_card.top() - 16.0)) };
                 let media = Rect::from_min_max(pos2(all.left(), all.bottom() - media_h), all.max);
@@ -352,6 +361,9 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
         });
     });
 }
+
+/// The layer editor's smallest height (its settings fit without scrolling).
+const LAYERS_MIN: f32 = 470.0;
 
 /// The layer editor while building a new custom scene; the camera otherwise.
 fn side_card(app: &mut App, ui: &mut Ui, card: Rect) {
@@ -751,27 +763,51 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
         let right = strip.right() - 96.0;
         let left = right - seg_w * 3.0;
         let view_label = text(&p, pos2(left - 8.0, strip.center().y), Align2::RIGHT_CENTER, l("View", "Vista"), body(11.5), FAINT);
-        // Lock the custom layout (only while editing one).
+        // Lock the custom layout, 16:9 and 9:16 apart (only while editing
+        // one; a lock per preview shown).
         if app.settings.layout.is_some() && app.settings.template.is_none() {
-            let locked = app.settings.layout_locked;
-            let lk = Rect::from_min_max(pos2(view_label.left() - 16.0 - 104.0, strip.center().y - 12.0), pos2(view_label.left() - 16.0, strip.center().y + 12.0));
-            let resp = ui.interact(lk, Id::new("layout-lock"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if locked {
-                l("Locked: layers can't be moved. Click to edit again.", "Bloqueado: las capas no se mueven. Clic para editar de nuevo.")
-            } else {
-                l("Lock the layout so nothing moves by accident", "Bloquea el layout para no mover nada por accidente")
-            });
-            p.rect_filled(lk, CornerRadius::same(12), if locked { Color32::from_rgba_premultiplied(90, 44, 0, 160) } else if resp.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 110) } else { Color32::from_rgba_premultiplied(0, 0, 0, 110) });
-            // A padlock: body and shackle (closed or open).
-            let c = lk.left_center() + vec2(16.0, 2.0);
-            let col = if locked { ORANGE } else { TEXT };
-            p.rect_filled(Rect::from_center_size(c, vec2(11.0, 8.0)), CornerRadius::same(2), col);
-            let sh = if locked { vec![c + vec2(-3.5, -4.0), c + vec2(-3.5, -7.0), c + vec2(0.0, -9.5), c + vec2(3.5, -7.0), c + vec2(3.5, -4.0)] } else { vec![c + vec2(-3.5, -4.0), c + vec2(-3.5, -7.0), c + vec2(0.0, -9.5), c + vec2(3.5, -7.5)] };
-            p.add(EShape::line(sh, Stroke::new(1.6, col)));
-            text(&p, lk.left_center() + vec2(30.0, 0.0), Align2::LEFT_CENTER, if locked { l("Locked", "Bloqueado") } else { l("Unlocked", "Desbloqueado") }, semibold(11.0), col);
-            if resp.clicked() {
-                app.settings.layout_locked = !locked;
-                app.drag = None;
-                app.settings_changed();
+            let mut locks: Vec<bool> = vec![];
+            if h {
+                locks.push(false);
+            }
+            if v {
+                locks.push(true);
+            }
+            let mut pw = 66.0;
+            let mut right_x = view_label.left() - 14.0;
+            // Short of room: just the padlocks.
+            if right_x - (pw + 6.0) * (locks.len() as f32) < x - 8.0 {
+                pw = 28.0;
+            }
+            for &vert in locks.iter().rev() {
+                let locked = if vert { app.settings.layout_locked_v } else { app.settings.layout_locked };
+                let name = if vert { "9:16" } else { "16:9" };
+                let lk = Rect::from_min_max(pos2(right_x - pw, strip.center().y - 12.0), pos2(right_x, strip.center().y + 12.0));
+                right_x = lk.left() - 6.0;
+                let resp = ui.interact(lk, Id::new(("layout-lock", vert)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if locked {
+                    t!("{} locked: its layers can't be moved. Click to edit again.", "{} bloqueado: sus capas no se mueven. Clic para editar de nuevo.", name)
+                } else {
+                    t!("Lock the {} layout so nothing moves by accident", "Bloquea el layout {} para no mover nada por accidente", name)
+                });
+                p.rect_filled(lk, CornerRadius::same(12), if locked { Color32::from_rgba_premultiplied(90, 44, 0, 160) } else if resp.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 110) } else { Color32::from_rgba_premultiplied(0, 0, 0, 110) });
+                // A padlock: body and shackle (closed or open).
+                let c = if pw > 30.0 { lk.left_center() + vec2(14.0, 2.0) } else { lk.center() + vec2(0.0, 2.0) };
+                let col = if locked { ORANGE } else { TEXT };
+                p.rect_filled(Rect::from_center_size(c, vec2(11.0, 8.0)), CornerRadius::same(2), col);
+                let sh = if locked { vec![c + vec2(-3.5, -4.0), c + vec2(-3.5, -7.0), c + vec2(0.0, -9.5), c + vec2(3.5, -7.0), c + vec2(3.5, -4.0)] } else { vec![c + vec2(-3.5, -4.0), c + vec2(-3.5, -7.0), c + vec2(0.0, -9.5), c + vec2(3.5, -7.5)] };
+                p.add(EShape::line(sh, Stroke::new(1.6, col)));
+                if pw > 30.0 {
+                    text(&p, lk.left_center() + vec2(26.0, 0.0), Align2::LEFT_CENTER, name, semibold(11.0), col);
+                }
+                if resp.clicked() {
+                    if vert {
+                        app.settings.layout_locked_v = !locked;
+                    } else {
+                        app.settings.layout_locked = !locked;
+                    }
+                    app.drag = None;
+                    app.settings_changed();
+                }
             }
         }
         let bg = Rect::from_min_max(pos2(left, strip.center().y - 12.0), pos2(right, strip.center().y + 12.0));

@@ -78,7 +78,7 @@ impl App {
 /// or (`vertical`) the 9:16 one, which starts from the automatic layout.
 pub fn layout_edit(app: &mut App, ui: &mut Ui, img: Rect, vertical: bool) {
     // Locked: nothing moves by accident.
-    if app.settings.layout_locked {
+    if (!vertical && app.settings.layout_locked) || (vertical && app.settings.layout_locked_v) {
         return;
     }
     let layout = if vertical {
@@ -215,13 +215,21 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
     if folded {
         return;
     }
+    let mut save = false;
+    {
+        let label = tr("Save layout", "Guardar layout");
+        let bw = 34.0 + ui.painter().layout_no_wrap(label.to_string(), semibold(13.5), TEXT).size().x;
+        let b = Rect::from_min_size(pos2(card.right() - 18.0 - bw, card.top() + 11.0), vec2(bw, 28.0));
+        if super::media_ui::pill(ui, b, "layers-save", label, true) {
+            save = true;
+        }
+    }
     let inner = Rect::from_min_max(pos2(card.left() + 18.0, card.top() + 50.0), pos2(card.right() - 18.0, card.bottom() - 12.0));
     let cam_aspect = app.status.cam.as_ref().map_or(16.0 / 9.0, |c| c.1.0 as f64 / c.1.1.max(1) as f64);
     let (ow, oh) = (app.status.out_size.0.max(16) as f64, app.status.out_size.1.max(9) as f64);
     let has_cam = app.status.cam.is_some();
     let pip = app.settings.pip();
     let mut changed = false;
-    let mut save = false;
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             let Some(layout) = app.settings.layout.as_mut() else { return };
@@ -260,9 +268,6 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                     app.edit_v = false;
                     app.sel_layer = Some(layout.layers.len() - 1);
                     changed = true;
-                }
-                if ui.add(egui::Button::new(egui::RichText::new(tr("Save scene…", "Guardar escena…")).strong().color(Color32::BLACK)).fill(Color32::WHITE)).on_hover_text(tr("Save this scene as a template", "Guardar esta escena como plantilla")).clicked() {
-                    save = true;
                 }
             });
             ui.add_space(2.0);

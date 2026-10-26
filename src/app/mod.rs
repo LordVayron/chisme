@@ -464,9 +464,18 @@ impl App {
         let t = crate::templates::Template { name: name.trim().to_string(), layout, brand: Some(self.settings.brand.clone()), assets: vec![], group: group.trim().to_string(), vertical: self.settings.layout_v.clone() };
         match crate::templates::save(&t) {
             Ok(_) => {
+                let v = self.settings.vertical_layout();
                 self.settings.template = Some(t.name.clone());
+                self.settings.layout_v = Some(v);
+                self.settings.keep_vertical();
+                // It joins the studio you're in (and its scene bar).
+                let pin = crate::settings::Pin::Template(t.name.clone());
+                if !self.settings.pinned.contains(&pin) {
+                    self.settings.pinned.push(pin);
+                }
                 let _ = self.settings.save();
-                self.toast(t!("Template saved: {}", "Plantilla guardada: {}", t.name));
+                let studio = self.settings.studios.get(self.settings.studio).map(|s| s.name.clone()).unwrap_or_default();
+                self.toast(t!("Saved: {} (in {})", "Guardada: {} (en {})", t.name, studio));
             }
             Err(e) => self.toast(t!("Couldn't save the template: {:#}", "No pude guardar la plantilla: {:#}", e)),
         }
