@@ -58,6 +58,8 @@ pub struct Settings {
     pub studios: Vec<Studio>,
     /// The active studio (index into `studios`).
     pub studio: usize,
+    /// Which built-in additions the studios already got (see `ensure_studios`).
+    pub studios_rev: u8,
     /// Part of the camera's name; None = no camera.
     pub camera: Option<String>,
     pub scene: Scene,
@@ -240,6 +242,7 @@ impl Default for Settings {
             pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),
             studios: vec![],
             studio: 0,
+            studios_rev: 0,
             camera: None,
             scene: Scene::ScreenCam,
             pip_size: pip.size,
@@ -299,6 +302,7 @@ impl Settings {
             self.studio = self.studio.min(self.studios.len() - 1);
             // The active studio's scenes live in `pinned`.
             self.studios[self.studio].scenes = self.pinned.clone();
+            self.add_stream_screens(templates);
             return;
         }
         use crate::i18n::l;
@@ -315,6 +319,27 @@ impl Settings {
             Studio { name: "Gaming / Stream".into(), scenes: vec![Pin::Scene(Scene::ScreenCam), Pin::Scene(Scene::Screen), Pin::Scene(Scene::Cam)] },
         ];
         self.studio = 0;
+        self.add_stream_screens(templates);
+    }
+
+    /// Once: put "Be right back" and "Starting soon" in Gaming / Stream.
+    fn add_stream_screens(&mut self, templates: &[String]) {
+        if self.studios_rev >= 1 {
+            return;
+        }
+        self.studios_rev = 1;
+        let screens: Vec<Pin> = crate::templates::stream_scenes().iter().filter(|t| templates.iter().any(|n| *n == t.name)).map(|t| Pin::Template(t.name.clone())).collect();
+        let cur = self.studio;
+        if let Some((i, s)) = self.studios.iter_mut().enumerate().find(|(_, s)| s.name.starts_with("Gaming")) {
+            for p in &screens {
+                if !s.scenes.contains(p) {
+                    s.scenes.push(p.clone());
+                }
+            }
+            if i == cur {
+                self.pinned = s.scenes.clone();
+            }
+        }
     }
 
     /// Make studio `i` the active one.
@@ -420,6 +445,7 @@ impl Settings {
             transition: self.transition,
             switch: self.switch,
             chat_pin: self.chat_pin.clone(),
+            media_loop: self.media.iter().filter(|m| m.looped).map(|m| m.path.clone()).collect(),
         }
     }
 

@@ -222,8 +222,10 @@ impl Layout {
             p.shadow = false;
             layers.push(p);
         }
+        // Text only (a "be right back" screen): big, in the middle.
+        let only_text = layers.is_empty();
         for (i, mut t) in texts.into_iter().enumerate() {
-            t.rect = [0.05, 0.84 - 0.08 * i as f64, 0.8, 0.07];
+            t.rect = if only_text { [0.08, 0.42 + 0.12 * i as f64, 0.84, 0.11] } else { [0.05, 0.84 - 0.08 * i as f64, 0.8, 0.07] };
             layers.push(t);
         }
         Layout { background: self.background, background_image: self.background_image.clone(), layers }

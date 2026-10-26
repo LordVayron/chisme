@@ -262,7 +262,22 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                     remove = Some(i);
                 }
                 if it.kind != Kind::Image {
-                    let slot = Rect::from_min_max(row.min, pos2(del.left() - 8.0, row.max.y));
+                    // Loop on / off.
+                    let lr = Rect::from_min_size(pos2(del.left() - 38.0, del.top()), vec2(30.0, 30.0));
+                    let on = it.looped;
+                    let resp = ui.interact(lr, Id::new(("media-loop", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if on {
+                        l("Loop: on (plays again until you stop it)", "Repetir: encendido (se repite hasta que lo detengas)")
+                    } else {
+                        l("Loop: off", "Repetir: apagado")
+                    });
+                    let fill = if on { Color32::from_rgba_premultiplied(90, 44, 0, 150) } else if resp.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 90) } else { Color32::from_rgba_premultiplied(40, 40, 44, 80) };
+                    ui.painter().rect_filled(lr, CornerRadius::same(15), fill);
+                    ui.painter().text(lr.center(), Align2::CENTER_CENTER, "↻", semibold(15.0), if on { ORANGE } else { TEXT });
+                    if resp.clicked() {
+                        app.settings.media[i].looped = !on;
+                        save = true;
+                    }
+                    let slot = Rect::from_min_max(row.min, pos2(lr.left() - 8.0, row.max.y));
                     ui.scope_builder(UiBuilder::new().max_rect(slot), |ui| {
                         ui.spacing_mut().slider_width = (slot.width() - 74.0).max(40.0);
                         ui.horizontal_centered(|ui| {
@@ -291,7 +306,8 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
         app.media_remove(i);
     }
     if save {
-        let _ = app.settings.save();
+        // Saves, and tells the engine (loop applies to what is playing).
+        app.settings_changed();
     }
     if !app.status.media.is_empty() {
         ctx.request_repaint();
