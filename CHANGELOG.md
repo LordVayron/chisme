@@ -5,14 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-### Added
-- Shortcuts for studios: Alt+Shift+1…9 switches to studio 1…9 (change it in Settings → Shortcuts). The studio picker shows each one's shortcut.
-- Drag a scene in the bar under the preview to change its place.
-- Locks for Custom layouts, one for 16:9 and one for 9:16 (next to View): a locked layout's layers can't be moved by accident on its preview.
-- "Save layout" at the top of the Layers card saves the Custom layout (16:9 and 9:16) as a template in the studio you're in.
-- Studio page Media Board: it shows only what you pin (the pin on each Media Board tile), in your order. Its Edit button lets you drag them into place, take them off and pick a color for each sound. Sounds are colored pads, lit while they play.
-- Templates page: "+ Add" on each template card puts it in the studio you have selected ("✓ In studio" takes it out).
+## [0.6.0] - 2026-10-26
 
+### Added
+- Live chat: a Chat card on the Studio page shows Twitch, Kick and YouTube messages in one list while you're live (set the channels with its gear; YouTube uses your own free API key, kept in Windows Credential Manager). Click a message to show it on screen as a branded lower third, in the recording and the streams; click again to remove it.
+- Go live from the Studio page: one button starts every platform you turned on, using the keys you saved on the Live page. Clicking it again asks, then ends them all.
+- Record while live (on by default; Live page, or the arrow next to Go live): Go live also records the whole stream to your Videos folder, as 16:9, 9:16 or both like Record, and it stops when the stream ends.
+- Guests: "Invite a guest" makes a link for one person (type their name if you like; it fills theirs), copies it and opens the green room. The links you made are listed with Copy, and the button says what's missing if the LiveKit project isn't set up yet.
 - Layer editor, rebuilt:
   - Resize from the sides as well as the corners.
   - Turn a layer with the round handle above it (Shift: steps of 15°).
@@ -23,35 +22,30 @@ and versions follow [Semantic Versioning](https://semver.org).
   - Arrow keys nudge (Shift: 10 px), Delete removes, Ctrl+D duplicates, Ctrl+Z / Ctrl+Y undo and redo.
   - Hovering a layer outlines it.
   - The 9:16 layout's layers have the same settings (pick 16:9 or 9:16 at the top of the Layers card, or click that preview).
-
-- Go live from the Studio page: one button starts every platform you turned on, using the keys you saved on the Live page. Clicking it again asks, then ends them all.
-- Record while live (on by default; Live page, or the arrow next to Go live): Go live also records the whole stream to your Videos folder, as 16:9, 9:16 or both like Record, and it stops when the stream ends.
-- Live page: each platform has a "Go live with Studio" toggle instead of its own Go live button, and its key is saved as you type it. While live, a platform shows its state and an End button for just that one.
-- Guests: "Invite a guest" makes a link for one person (type their name if you like; it fills theirs), copies it and opens the green room. The links you made are listed with Copy. The LiveKit settings fold behind the gear once they're set.
-- A selected camera layer shows the camera itself in the Layers card: which camera, its background, and zoom, focus and light.
+  - A selected camera layer shows the camera itself: which camera, its background, and zoom, focus and light.
+- Locks for Custom layouts, one for 16:9 and one for 9:16 (next to View).
+- "Save layout" at the top of the Layers card saves the Custom layout (16:9 and 9:16) as a template in the studio you're in.
+- Studio page Media Board: it shows only what you pin (the pin on each Media Board tile), in your order. Its Edit button lets you drag them into place, take them off and pick a color for each sound. Sounds are colored pads, lit while they play.
+- Loop for Media Board clips and sounds: the ↻ button on a tile makes it start again when it ends, until you stop it.
+- "Be right back" and "Starting soon" screens, in the Gaming / Stream studio and on the Templates page.
+- Shortcuts for studios: Alt+Shift+1…9 switches to studio 1…9 (change it in Settings → Shortcuts). The studio picker shows each one's shortcut.
+- Drag a scene in the bar under the preview to change its place.
+- Templates page: "+ Add" on each template card puts it in the studio you have selected ("✓ In studio" takes it out).
 
 ### Changed
+- Live page: each platform has a "Go live with Studio" toggle instead of its own Go live button, and its key is saved as you type it. While live, a platform shows its state and an End button for just that one.
 - Studio page: the Media Board sits under the preview, and the right column's cards end with it (Camera, or Layers while editing, takes the height left), so there's no empty space.
-- While you edit a layout, the Layers card sits beside the preview and uses the full height (Live audio goes under it), so the preview and all the settings are visible together.
-- The Chat card shows on the Studio page only while you're live.
-- Guests: "Invite a guest" is always there and says what's missing (a project URL typed as https://… or without a prefix works too).
+- While you edit a layout, the Layers card sits beside the preview at full height (Live audio goes under it), so the preview and all the settings are visible together.
 - Every scene keeps its own 9:16 layout. Changing the 9:16 layout of one scene no longer changes another, and the 9:16 layout no longer changes when you edit the 16:9 one.
 - Choosing a studio on the Templates page shows only its templates; "See all" shows every one.
 - A "View: 16:9 | 9:16 | Both" switch under the preview replaces the small 16:9 and 9:16 buttons on the pictures.
 - When the window is narrow, the scenes move to their own row under Record instead of disappearing.
-- In a smaller window the Layers card keeps the room it needs (picture, shape, border…) and the page scrolls instead.
+- Guests: the LiveKit settings fold behind the gear once they're set, and a project URL typed as https://… or without a prefix works too.
 
 ### Fixed
-- Scrolling the Layers card no longer jumps back to the top when the Media Board has pinned items (the two shared one scroll position).
-- The Layers, Camera and Chat cards scroll inside the card (with a visible scroll bar) when the window is small, instead of cutting off their settings.
 - Looping clips and sounds play again with no gap: the next pass is ready before the current one ends, so the picture never goes black between them.
-
-### Changed
-
-### Added
-- Loop for Media Board clips and sounds: the ↻ button on a tile makes it start again when it ends, until you stop it (it applies to what's already playing too).
-- "Be right back" and "Starting soon" screens, in the Gaming / Stream studio and on the Templates page. Play a looping clip from the Media Board behind them if you like.
-- Live chat: a Chat card on the Studio page shows Twitch, Kick and YouTube messages in one list (set the channels with its gear; YouTube uses your own free API key, kept in Windows Credential Manager). Click a message to show it on screen as a branded lower third, in the recording and the streams; click again to remove it.
+- The Layers, Camera and Chat cards scroll inside the card (with a visible scroll bar) when the window is small, instead of cutting off their settings, and the Layers card no longer jumps back to the top when the Media Board has pinned items.
+- The record picker stays inside a narrow preview card.
 
 ## [0.5.0] - 2026-10-25
 
@@ -184,7 +178,8 @@ and versions follow [Semantic Versioning](https://semver.org).
   TikTok, X and RTMP, a replay buffer, Whisper subtitles, a tray icon, global hotkeys, a command
   line and the installer.
 
-[Unreleased]: https://github.com/LordVayron/chisme/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/LordVayron/chisme/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/LordVayron/chisme/releases/tag/v0.6.0
 [0.5.0]: https://github.com/LordVayron/chisme/releases/tag/v0.5.0
 [0.4.4]: https://github.com/LordVayron/chisme/releases/tag/v0.4.4
 [0.4.3]: https://github.com/LordVayron/chisme/releases/tag/v0.4.3
