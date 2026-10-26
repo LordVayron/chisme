@@ -121,6 +121,11 @@ impl Blitter {
         self.blit_target(src, (0, 0, src_size.0, src_size.1), dst, dst_rect, dst_rect)
     }
 
+    /// `blit_rect` that leaves everything outside `dst_rect` as it is.
+    pub fn blit_rect_into(&mut self, src: &ID3D11Texture2D, src_rect: (u32, u32, u32, u32), dst: &ID3D11Texture2D, dst_rect: (u32, u32, u32, u32)) -> Result<()> {
+        self.blit_target(src, src_rect, dst, dst_rect, dst_rect)
+    }
+
     fn blit_target(&mut self, src: &ID3D11Texture2D, src_rect: (u32, u32, u32, u32), dst: &ID3D11Texture2D, dst_rect: (u32, u32, u32, u32), target: (u32, u32, u32, u32)) -> Result<()> {
         let input = self.input(src)?;
         let output = self.output(dst)?;

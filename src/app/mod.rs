@@ -11,6 +11,7 @@ mod media_ui;
 mod prompter;
 mod templates_ui;
 mod theme;
+mod tutorial_ui;
 mod chat_ui;
 mod ui;
 

@@ -319,9 +319,38 @@ impl Overlay {
             p.cam_off = [tx as f32, ty as f32];
             ((0.0, 0.0), None)
         };
+        self.submit(&p, region_xy, srv, decor);
+        Ok(())
+    }
+
+    /// Draw a picture with transparency (straight alpha) stretched over
+    /// `rect` (x, y, w, h; fractional pixels and partly off the canvas are
+    /// fine), with no shape or border: cursors, click rings, banners.
+    pub fn draw_sprite(&mut self, srv: &ID3D11ShaderResourceView, rect: [f64; 4], opacity: f64) -> Result<()> {
+        if opacity <= 0.001 || rect[2] < 0.5 || rect[3] < 0.5 {
+            return Ok(());
+        }
+        let size = [rect[2] as f32, rect[3] as f32];
+        let p = Params {
+            region: size,
+            decor_size: size,
+            cam_size: size,
+            clip: 1.0,
+            use_alpha: 1.0,
+            uv_scale: [1.0, 1.0],
+            crop: [0.0, 0.0, 1.0, 1.0],
+            rot: [1.0, 0.0],
+            opacity: opacity.clamp(0.0, 1.0) as f32,
+            ..Default::default()
+        };
+        self.submit(&p, (rect[0], rect[1]), srv, None);
+        Ok(())
+    }
+
+    fn submit(&self, p: &Params, region_xy: (f64, f64), srv: &ID3D11ShaderResourceView, decor: Option<ID3D11ShaderResourceView>) {
         let c = &self.gpu.context;
         unsafe {
-            c.UpdateSubresource(&self.cb, 0, None, &p as *const _ as _, 0, 0);
+            c.UpdateSubresource(&self.cb, 0, None, p as *const _ as _, 0, 0);
             c.OMSetRenderTargets(Some(&[Some(self.rtv.clone())]), None);
             c.OMSetBlendState(&self.blend, Some(&[0.0; 4]), 0xffff_ffff);
             c.RSSetViewports(Some(&[D3D11_VIEWPORT {
@@ -344,6 +373,5 @@ impl Overlay {
             c.PSSetShaderResources(0, Some(&[None, None]));
             c.OMSetRenderTargets(None, None);
         }
-        Ok(())
     }
 }

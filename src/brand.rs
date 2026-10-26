@@ -127,6 +127,20 @@ impl Canvas {
     }
 }
 
+/// The shortcut banner: the keys in white on a dark rounded box, `h`
+/// pixels tall and as wide as the text needs.
+pub fn key_banner(keys: &str, h: usize) -> Canvas {
+    let font = FontRef::try_from_slice(INTER).expect("bundled font");
+    let hf = h.max(8) as f32;
+    let size = hf * 0.44;
+    let pad = hf * 0.5;
+    let w = measure(&font, size, keys) + 2.0 * pad;
+    let mut c = Canvas::new(w.ceil() as usize, h.max(8));
+    c.rrect(0.0, 0.0, w, hf, hf * 0.28, [22, 22, 26], 0.9);
+    c.text(&font, size, pad, hf * 0.66, keys, [255, 255, 255], 1.0);
+    c
+}
+
 /// Width of `s` at `size` without drawing.
 pub fn measure(font: &FontRef, size: f32, s: &str) -> f32 {
     let sf = font.as_scaled(PxScale::from(size));
