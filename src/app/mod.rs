@@ -406,6 +406,12 @@ impl App {
             Action::Replay => self.save_replay(),
             Action::Prompter => self.toggle_prompter(),
             Action::PrompterPlay => self.prompter_play(),
+            Action::Zoom => {
+                let paused = !self.settings.tutorial.zoom_paused;
+                self.settings.tutorial.zoom_paused = paused;
+                self.settings_changed();
+                self.toast(if paused { l("Auto zoom paused", "Zoom automático en pausa") } else { l("Auto zoom on", "Zoom automático activo") });
+            }
             Action::Template(i) => {
                 if let Some(t) = self.templates.get(i).cloned() {
                     self.apply_template(&t);

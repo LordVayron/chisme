@@ -7,9 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ### Added
 - Tutorial mode: a new card on the Studio page with one main switch (off by default) and a switch per part. Each part can go to the recording, the stream or both, and it all works live:
-  - Click effects: a ring in your brand color on every click.
+  - Click effects: a ring on every click, in your brand color or any color you pick.
   - Bigger cursor (1.2x to 3x), hidden while the mouse rests.
-  - Auto zoom: zooms the screen in where you click or type, follows the cursor near the edges, and zooms back out when you stop, with smooth motion and adjustable strength.
+  - Auto zoom: zooms the screen in where you click or type, follows the cursor near the edges, and zooms back out when you stop, with smooth motion and adjustable strength. Pause it with a shortcut (Ctrl+Alt+Z, changeable in Settings → Shortcuts) or its Pause switch when you don't want every click to zoom; the rest keeps working.
   - Smooth cursor: Chisme draws the cursor itself, gliding instead of jumping.
   - Shortcut banner: shows Ctrl, Alt and Win shortcuts (like "Ctrl + Shift + S") near the bottom. It never shows what you type.
 - A "Tutorial" template, also one click away in the Tutorial mode card: your screen with padding, rounded corners and a shadow on a dark gradient.

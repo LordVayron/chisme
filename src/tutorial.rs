@@ -70,13 +70,18 @@ pub struct Tutorial {
     pub zoom: Part,
     /// How far auto zoom goes in (1.2x to 3x).
     pub zoom_strength: f64,
+    /// Auto zoom stays out (a shortcut toggles it) while the rest keeps
+    /// working.
+    pub zoom_paused: bool,
+    /// The click ring's color (None: the brand's primary color).
+    pub ring_color: Option<[u8; 3]>,
     pub smooth_cursor: Part,
     pub keys: Part,
 }
 
 impl Default for Tutorial {
     fn default() -> Self {
-        Tutorial { enabled: false, clicks: Part::default(), big_cursor: Part::default(), cursor_size: 1.6, zoom: Part::default(), zoom_strength: 1.8, smooth_cursor: Part::default(), keys: Part::default() }
+        Tutorial { enabled: false, clicks: Part::default(), big_cursor: Part::default(), cursor_size: 1.6, zoom: Part::default(), zoom_strength: 1.8, zoom_paused: false, ring_color: None, smooth_cursor: Part::default(), keys: Part::default() }
     }
 }
 
@@ -242,8 +247,9 @@ impl State {
     }
 
     /// Advance to host time `t` with the cursor at `cursor` and the events
-    /// since the last call. `strength`: how far the zoom goes in.
-    pub fn update(&mut self, t: f64, cursor: Option<[f64; 2]>, events: &[(f64, Event)], strength: f64) -> Frame {
+    /// since the last call. `strength`: how far the zoom goes in; `zoom`:
+    /// false keeps it out (paused), easing out if it was in.
+    pub fn update(&mut self, t: f64, cursor: Option<[f64; 2]>, events: &[(f64, Event)], strength: f64, zoom: bool) -> Frame {
         let dt = self.last_t.map_or(0.0, |l| (t - l).clamp(0.0, 0.1));
         self.last_t = Some(t);
         if let Some(p) = cursor {
@@ -265,14 +271,20 @@ impl State {
             match e {
                 Event::Click(p) => {
                     self.clicks.push((*at, *p));
-                    self.activity(*p, HOLD_CLICK, *at, strength);
+                    if zoom {
+                        self.activity(*p, HOLD_CLICK, *at, strength);
+                    }
                 }
+                Event::Typing(_) if !zoom => {}
                 Event::Typing(p) => {
                     let p = p.or(cursor).unwrap_or(self.focus);
                     self.activity(p, HOLD_TYPING, *at, strength);
                 }
                 Event::Shortcut(s) => self.banner = Some((s.clone(), *at)),
             }
+        }
+        if !zoom {
+            self.until = 0.0;
         }
         if t > self.until {
             self.target_z = 1.0;
@@ -396,21 +408,21 @@ mod tests {
     #[test]
     fn zooms_on_click_and_back_when_idle() {
         let mut s = State::default();
-        let f = s.update(0.0, Some([0.8, 0.8]), &[], 2.0);
+        let f = s.update(0.0, Some([0.8, 0.8]), &[], 2.0, true);
         assert!(close(f.zoom, 1.0));
-        s.update(0.1, Some([0.8, 0.8]), &[(0.1, Event::Click([0.8, 0.8]))], 2.0);
+        s.update(0.1, Some([0.8, 0.8]), &[(0.1, Event::Click([0.8, 0.8]))], 2.0, true);
         let mut t = 0.1;
         let mut f = Frame::default();
         while t < 1.5 {
             t += 1.0 / 60.0;
-            f = s.update(t, Some([0.8, 0.8]), &[], 2.0);
+            f = s.update(t, Some([0.8, 0.8]), &[], 2.0, true);
         }
         assert!((f.zoom - 2.0).abs() < 0.02, "zoomed in: {}", f.zoom);
         // The view is kept inside the picture: centered at 0.75, not 0.8.
         assert!((f.center[0] - 0.75).abs() < 0.01 && (f.center[1] - 0.75).abs() < 0.01);
         while t < 6.0 {
             t += 1.0 / 60.0;
-            f = s.update(t, Some([0.8, 0.8]), &[], 2.0);
+            f = s.update(t, Some([0.8, 0.8]), &[], 2.0, true);
         }
         assert!((f.zoom - 1.0).abs() < 0.01, "zoomed back out: {}", f.zoom);
     }
@@ -418,14 +430,14 @@ mod tests {
     #[test]
     fn follows_cursor_and_typing_keeps_zoom() {
         let mut s = State::default();
-        s.update(0.0, Some([0.3, 0.3]), &[(0.0, Event::Click([0.3, 0.3]))], 2.0);
+        s.update(0.0, Some([0.3, 0.3]), &[(0.0, Event::Click([0.3, 0.3]))], 2.0, true);
         let mut t = 0.0;
         let mut f = Frame::default();
         // The cursor drifts right, past the view's edge.
         while t < 2.0 {
             t += 1.0 / 60.0;
             let x = 0.3 + 0.3 * (t / 2.0);
-            f = s.update(t, Some([x, 0.3]), &[], 2.0);
+            f = s.update(t, Some([x, 0.3]), &[], 2.0, true);
         }
         let w = window(f.center, f.zoom);
         assert!(0.6 < w[0] + w[2], "the view followed the cursor");
@@ -433,25 +445,51 @@ mod tests {
         while t < 5.0 {
             t += 1.0 / 60.0;
             let ev = if (t * 60.0) as i64 % 20 == 0 { vec![(t, Event::Typing(None))] } else { vec![] };
-            f = s.update(t, Some([0.6, 0.3]), &ev, 2.0);
+            f = s.update(t, Some([0.6, 0.3]), &ev, 2.0, true);
         }
         assert!(f.zoom > 1.9);
     }
 
     #[test]
+    fn paused_zoom_eases_out_and_ignores_clicks() {
+        let mut s = State::default();
+        s.update(0.0, Some([0.5, 0.5]), &[(0.0, Event::Click([0.5, 0.5]))], 2.0, true);
+        let mut t = 0.0;
+        while t < 1.0 {
+            t += 1.0 / 60.0;
+            s.update(t, Some([0.5, 0.5]), &[], 2.0, true);
+        }
+        // Paused mid-zoom: it eases back out, then clicks still ring but don't zoom.
+        let f = s.update(t + 1.0 / 60.0, Some([0.5, 0.5]), &[], 2.0, false);
+        assert!(f.zoom > 1.8, "no jump");
+        while t < 3.0 {
+            t += 1.0 / 60.0;
+            s.update(t, Some([0.5, 0.5]), &[], 2.0, false);
+        }
+        let f = s.update(t, Some([0.5, 0.5]), &[(t, Event::Click([0.2, 0.2])), (t, Event::Typing(None))], 2.0, false);
+        assert!(f.zoom < 1.01 && f.clicks.len() == 1);
+        let mut f = f;
+        for _ in 0..30 {
+            t += 1.0 / 60.0;
+            f = s.update(t, Some([0.5, 0.5]), &[], 2.0, false);
+        }
+        assert!(f.zoom < 1.01);
+    }
+
+    #[test]
     fn rings_banner_and_idle_cursor() {
         let mut s = State::default();
-        let f = s.update(1.0, Some([0.5, 0.5]), &[(1.0, Event::Click([0.5, 0.5])), (1.0, Event::Shortcut("Ctrl + S".into()))], 1.5);
+        let f = s.update(1.0, Some([0.5, 0.5]), &[(1.0, Event::Click([0.5, 0.5])), (1.0, Event::Shortcut("Ctrl + S".into()))], 1.5, true);
         assert_eq!(f.clicks.len(), 1);
         assert_eq!(f.banner, Some(("Ctrl + S".into(), 1.0)));
         assert!(close(f.cursor_alpha, 1.0));
-        let f = s.update(1.0 + RING_SECS + 0.01, Some([0.5, 0.5]), &[], 1.5);
+        let f = s.update(1.0 + RING_SECS + 0.01, Some([0.5, 0.5]), &[], 1.5, true);
         assert!(f.clicks.is_empty());
-        let f = s.update(1.0 + BANNER_SECS + 0.01, Some([0.5, 0.5]), &[], 1.5);
+        let f = s.update(1.0 + BANNER_SECS + 0.01, Some([0.5, 0.5]), &[], 1.5, true);
         assert!(f.banner.is_none());
-        let f = s.update(1.0 + IDLE_SECS + 0.5, Some([0.5, 0.5]), &[], 1.5);
+        let f = s.update(1.0 + IDLE_SECS + 0.5, Some([0.5, 0.5]), &[], 1.5, true);
         assert!(close(f.cursor_alpha, 0.0), "hidden after resting");
-        let f = s.update(1.0 + IDLE_SECS + 0.6, Some([0.6, 0.5]), &[], 1.5);
+        let f = s.update(1.0 + IDLE_SECS + 0.6, Some([0.6, 0.5]), &[], 1.5, true);
         assert!(close(f.cursor_alpha, 1.0), "back as soon as it moves");
         let (r0, a0) = ring(0.0);
         let (r1, a1) = ring(1.0);

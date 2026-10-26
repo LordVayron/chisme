@@ -1,7 +1,7 @@
 //! The Tutorial mode card on the Studio page: one main switch in the title,
 //! and a switch per part with where it goes (recording, stream or both).
 
-use eframe::egui::{self, Rect, ScrollArea, Ui, UiBuilder, pos2, vec2};
+use eframe::egui::{self, Color32, CursorIcon, Rect, ScrollArea, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 
 use super::App;
 use super::theme::{self, *};
@@ -10,7 +10,7 @@ use crate::i18n::l;
 use crate::tutorial::{Apply, Part};
 
 /// The card's height when open.
-pub(super) const OPEN_H: f32 = 330.0;
+pub(super) const OPEN_H: f32 = 400.0;
 
 /// Its height now.
 pub(super) fn height(app: &App) -> f32 {
@@ -63,8 +63,13 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
                 ui.label(egui::RichText::new(l("Off. Turn it on with the switch above.", "Apagado. Actívalo con el interruptor de arriba.")).color(MUTED).size(12.0));
                 ui.add_space(4.0);
             }
+            let brand = app.settings.brand.primary;
+            let zoom_key = app.settings.hotkeys.zoom.clone();
             let t = &mut app.settings.tutorial;
-            changed |= part_row(ui, l("Click effects", "Efecto en clics"), l("A ring in your brand color on each click", "Un anillo del color de tu marca en cada clic"), &mut t.clicks, "tut-clicks");
+            changed |= part_row(ui, l("Click effects", "Efecto en clics"), l("A ring on each click", "Un anillo en cada clic"), &mut t.clicks, "tut-clicks");
+            if t.clicks.on {
+                changed |= color_row(ui, &mut t.ring_color, brand);
+            }
             changed |= part_row(ui, l("Bigger cursor", "Cursor más grande"), l("Hides while the mouse rests", "Se oculta cuando el mouse no se mueve"), &mut t.big_cursor, "tut-big");
             if t.big_cursor.on {
                 changed |= slider_row(ui, l("Size", "Tamaño"), &mut t.cursor_size);
@@ -72,6 +77,20 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
             changed |= part_row(ui, l("Auto zoom", "Zoom automático"), l("Zooms in where you click or type, and back out when you stop", "Acerca donde haces clic o escribes, y se aleja cuando paras"), &mut t.zoom, "tut-zoom");
             if t.zoom.on {
                 changed |= slider_row(ui, l("Strength", "Intensidad"), &mut t.zoom_strength);
+                ui.horizontal(|ui| {
+                    ui.set_min_height(28.0);
+                    ui.add_space(44.0);
+                    ui.label(egui::RichText::new(l("Pause", "Pausar")).color(MUTED).size(12.0));
+                    let hint = if zoom_key.is_empty() {
+                        l("Set a shortcut in Settings → Shortcuts", "Pon un atajo en Ajustes → Atajos").to_string()
+                    } else {
+                        crate::t!("Shortcut: {}", "Atajo: {}", zoom_key)
+                    };
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        changed |= toggle(ui, &mut t.zoom_paused).on_hover_text(l("Clicks don't zoom while paused; the rest keeps working", "Los clics no acercan mientras está en pausa; lo demás sigue")).changed();
+                        ui.label(egui::RichText::new(hint).color(MUTED).size(11.0));
+                    });
+                });
             }
             changed |= part_row(ui, l("Smooth cursor", "Cursor suave"), l("Glides instead of jumping", "Se desliza en vez de saltar"), &mut t.smooth_cursor, "tut-smooth");
             changed |= part_row(ui, l("Shortcut banner", "Aviso de atajos"), l("Shows Ctrl, Alt and Win shortcuts. Never what you type.", "Muestra atajos con Ctrl, Alt y Win. Nunca lo que escribes."), &mut t.keys, "tut-keys");
@@ -93,6 +112,49 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
         });
         app.apply_template(&t);
     }
+}
+
+/// The ring's color: the brand's, a few presets, or any color.
+fn color_row(ui: &mut Ui, color: &mut Option<[u8; 3]>, brand: [u8; 3]) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.set_min_height(28.0);
+        ui.add_space(44.0);
+        ui.label(egui::RichText::new(l("Color", "Color")).color(MUTED).size(12.0));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut pick = color.unwrap_or(brand);
+            if ui.color_edit_button_srgb(&mut pick).on_hover_text(l("Any color", "Cualquier color")).changed() {
+                *color = Some(pick);
+                changed = true;
+            }
+            let presets: [(Option<[u8; 3]>, &str); 6] = [
+                (Some([255, 255, 255]), ""),
+                (Some([46, 204, 113]), ""),
+                (Some([214, 38, 46]), ""),
+                (Some([36, 84, 255]), ""),
+                (Some([255, 196, 0]), ""),
+                (None, l("Brand color", "Color de marca")),
+            ];
+            for (c, tip) in presets {
+                let rgb = c.unwrap_or(brand);
+                let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
+                ui.painter().circle_filled(r.center(), 8.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
+                if c.is_none() {
+                    ui.painter().circle_stroke(r.center(), 8.0, Stroke::new(1.0, Color32::from_gray(20)));
+                }
+                if *color == c {
+                    ui.painter().circle_stroke(r.center(), 11.0, Stroke::new(1.5, TEXT));
+                }
+                let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+                let resp = if tip.is_empty() { resp } else { resp.on_hover_text(tip) };
+                if resp.clicked() && *color != c {
+                    *color = c;
+                    changed = true;
+                }
+            }
+        });
+    });
+    changed
 }
 
 fn slider_row(ui: &mut Ui, label: &str, v: &mut f64) -> bool {

@@ -173,6 +173,8 @@ pub struct Hotkeys {
     pub replay: String,
     pub prompter: String,
     pub prompter_play: String,
+    /// Pause or resume Tutorial mode's auto zoom.
+    pub zoom: String,
     pub templates: String,
     pub media: String,
     pub studios: String,
@@ -187,6 +189,7 @@ impl Default for Hotkeys {
             replay: "Ctrl+Shift+S".into(),
             prompter: "Ctrl+Shift+T".into(),
             prompter_play: "Ctrl+Shift+Space".into(),
+            zoom: "Ctrl+Alt+Z".into(),
             templates: "Ctrl+Shift".into(),
             media: "Ctrl+Alt".into(),
             studios: "Alt+Shift".into(),

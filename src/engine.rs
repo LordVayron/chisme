@@ -1288,7 +1288,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     cap_cursor = want_cursor;
                 }
                 let (snap, events) = tracker.as_ref().map(|t| t.poll()).unwrap_or_default();
-                let tframe = tut_state.update(t, snap.pos, &events, tutorial.zoom_strength);
+                let tframe = tut_state.update(t, snap.pos, &events, tutorial.zoom_strength, !tutorial.zoom_paused);
                 let passes = plan_passes(tutorial, rec_slot.is_some(), want_preview, &lives);
                 let scene = if cam.is_some() { live.scene } else { Scene::Screen };
                 let switched = live.switch != last_switch;
@@ -1323,7 +1323,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     let mut tex = None;
                     let mut tex_v = None;
                     for pass in &passes {
-                        let tut = Tut { parts: pass.parts, frame: &tframe, snap: &snap, cursor: cfg.cursor && !cap_cursor, size: tutorial.cursor_size };
+                        let tut = Tut { parts: pass.parts, frame: &tframe, snap: &snap, cursor: cfg.cursor && !cap_cursor, size: tutorial.cursor_size, ring: tutorial.ring_color.unwrap_or(live.brand.primary) };
                         if cfg.test_pattern {
                             // White for 3 frames from frame fps/2 of each second
                             // (when the beep starts), else dark.
@@ -1346,12 +1346,12 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                                     let area = crate::compose::side_by_side(out.0 as f64, out.1 as f64).0;
                                     let dst = place(area);
                                     pipe.scale.blit_rect_into(&cap.latest, src, &pipe.canvas, dst)?;
-                                    draw_pointer(&gpu, &mut pipe, &tut, info.content, src, dst, &live.brand)?;
+                                    draw_pointer(&gpu, &mut pipe, &tut, info.content, src, dst)?;
                                 }
                                 _ => {
                                     let dst = fit(info.content, out);
                                     pipe.scale.blit_rect(&cap.latest, src, &pipe.canvas, dst)?;
-                                    draw_pointer(&gpu, &mut pipe, &tut, info.content, src, dst, &live.brand)?;
+                                    draw_pointer(&gpu, &mut pipe, &tut, info.content, src, dst)?;
                                 }
                             }
                         }
@@ -1368,7 +1368,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                             let area = crate::compose::screen_box(&live.pip, out.0 as f64, out.1 as f64, aspect);
                             let (src, dst) = (screen_src(info.content, [0.0, 0.0, 1.0, 1.0], &tut), place_exact(area));
                             pipe.scale.blit_rect_into(&cap.latest, src, &pipe.canvas, dst)?;
-                            draw_pointer(&gpu, &mut pipe, &tut, info.content, src, dst, &live.brand)?;
+                            draw_pointer(&gpu, &mut pipe, &tut, info.content, src, dst)?;
                         }
                         if !cfg.test_pattern {
                             draw_media(&gpu, &mut pipe, &players, media_image.as_deref(), out)?;
@@ -1603,6 +1603,8 @@ struct Tut<'a> {
     cursor: bool,
     /// The big cursor's size.
     size: f64,
+    /// The click ring's color.
+    ring: [u8; 3],
 }
 
 /// The part of the capture a screen shows (pixels), from its `crop`
@@ -1619,15 +1621,15 @@ fn screen_src(content: (u32, u32), crop: [f64; 4], tut: &Tut) -> (u32, u32, u32,
 
 /// Click rings and the cursor over a screen picture: `src` is the part of
 /// the capture shown (pixels), drawn at `dst` (canvas pixels).
-fn draw_pointer(gpu: &Gpu, pipe: &mut Pipeline, tut: &Tut, content: (u32, u32), src: (u32, u32, u32, u32), dst: (u32, u32, u32, u32), brand: &Brand) -> Result<()> {
+fn draw_pointer(gpu: &Gpu, pipe: &mut Pipeline, tut: &Tut, content: (u32, u32), src: (u32, u32, u32, u32), dst: (u32, u32, u32, u32)) -> Result<()> {
     let (s, d) = ([src.0, src.1, src.2, src.3].map(|v| v as f64), [dst.0, dst.1, dst.2, dst.3].map(|v| v as f64));
     // Canvas pixels per captured pixel.
     let k = d[2] / s[2].max(1.0);
     let to = |p: [f64; 2]| [d[0] + (p[0] * content.0 as f64 - s[0]) * k, d[1] + (p[1] * content.1 as f64 - s[1]) * k];
     let shown = |q: [f64; 2]| q[0] >= d[0] && q[0] <= d[0] + d[2] && q[1] >= d[1] && q[1] <= d[1] + d[3];
     if tut.parts.clicks && !tut.frame.clicks.is_empty() {
-        let key = format!("ring:{:?}", brand.primary);
-        if let Some((_, srv)) = picture(gpu, pipe, &key, || Some(ring_picture(brand.primary))) {
+        let key = format!("ring:{:?}", tut.ring);
+        if let Some((_, srv)) = picture(gpu, pipe, &key, || Some(ring_picture(tut.ring))) {
             let big = content.1 as f64 * 0.032 * k;
             for (p, prog) in &tut.frame.clicks {
                 let (r, a) = crate::tutorial::ring(*prog);
@@ -1750,7 +1752,7 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 let (tex, srv) = (pipe.layer_tex[i].1.clone(), pipe.layer_tex[i].2.clone());
                 pipe.scale.blit_sized(&cap.latest, crop, &tex, size)?;
                 pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some([r[0], r[1], size.0 as f64, size.1 as f64]), &style, false, &fx)?;
-                draw_pointer(gpu, pipe, tut, content, crop, (r[0] as u32, r[1] as u32, size.0, size.1), brand)?;
+                draw_pointer(gpu, pipe, tut, content, crop, (r[0] as u32, r[1] as u32, size.0, size.1))?;
             }
             LayerSource::Camera => {
                 let (Some(c), Some(srv)) = (cam, pipe.overlay.cam()) else {
