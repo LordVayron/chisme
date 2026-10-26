@@ -193,6 +193,8 @@ pub struct App {
     pub guest_setup: bool,
     /// Asking before ending every stream.
     pub end_live_ask: bool,
+    /// When the app started (tests).
+    pub started: std::time::Instant,
     pub guest_thumbs: std::collections::HashMap<String, (u64, egui::TextureHandle)>,
 }
 
@@ -297,6 +299,7 @@ impl App {
             guest_name: String::new(),
             guest_setup: false,
             end_live_ask: false,
+            started: std::time::Instant::now(),
             guest_thumbs: Default::default(),
         }
     }
@@ -821,6 +824,19 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Tests only: CHISME_FAKE_WHEEL="x,y,secs" scrolls the mouse wheel at
+    /// (x, y) a few times after `secs`, without touching the real mouse.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        let Ok(v) = std::env::var("CHISME_FAKE_WHEEL") else { return };
+        let n: Vec<f32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        let (Some(&x), Some(&y), Some(&after)) = (n.first(), n.get(1), n.get(2)) else { return };
+        let t = self.started.elapsed().as_secs_f32();
+        if t > after && t < after + 1.5 {
+            raw.events.push(egui::Event::PointerMoved(egui::pos2(x, y)));
+            raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -40.0), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown, modifiers: egui::Modifiers::NONE });
+        }
+    }
+
     /// Runs even while the window is hidden, so the tray and hotkeys work.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll(ctx);

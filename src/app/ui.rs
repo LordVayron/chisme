@@ -1321,7 +1321,7 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
     }
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
         ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
-        ScrollArea::vertical().max_height(inner.height()).auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().max_height(inner.height()).scroll_source(egui::scroll_area::ScrollSource::ALL).auto_shrink([false; 2]).show(ui, |ui| {
         if app.settings.camera.is_none() || cam.is_none() {
             ui.add_space(6.0);
             let msg = if app.settings.camera.is_some() && app.status.ready { l("The camera didn't respond. Pick another:", "La cámara no respondió. Elige otra:") } else { l("Add your camera to the video:", "Agrega tu cámara al video:") };
