@@ -24,7 +24,8 @@ and versions follow [Semantic Versioning](https://semver.org).
   - Hovering a layer outlines it.
   - The 9:16 layout's layers have the same settings (pick 16:9 or 9:16 at the top of the Layers card, or click that preview).
 
-- Go live from the Studio page: one button starts every platform you pick (the arrow next to it; it remembers), using the keys you saved on the Live page. Clicking it again asks, then ends them all.
+- Go live from the Studio page: one button starts every platform you turned on, using the keys you saved on the Live page. Clicking it again asks, then ends them all.
+- Live page: each platform has a "Go live with Studio" toggle instead of its own Go live button, and its key is saved as you type it. While live, a platform shows its state and an End button for just that one.
 - Guests: "Invite a guest" makes a link for one person (type their name if you like; it fills theirs), copies it and opens the green room. The links you made are listed with Copy. The LiveKit settings fold behind the gear once they're set.
 - A selected camera layer shows the camera itself in the Layers card: which camera, its background, and zoom, focus and light.
 

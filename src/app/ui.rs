@@ -1666,6 +1666,20 @@ fn brand(p: Platform) -> Color32 {
 }
 
 fn live(app: &mut App, ui: &mut Ui, area: Rect) {
+    let bar = Rect::from_min_size(area.min, vec2(area.width(), 56.0));
+    {
+        let p = ui.painter().clone();
+        theme::card(&p, bar);
+        let n = app.go_live_targets().len();
+        p.text(bar.left_center() + vec2(22.0, -8.0), Align2::LEFT_CENTER, l("Turn on the platforms you want, then go live from the Studio page", "Activa las plataformas que quieras y transmite desde la página Estudio"), medium(14.0), TEXT);
+        let sub = if n == 0 { l("No platform is on yet: add a stream key and turn on \"Go live with Studio\".", "Aún no hay ninguna: agrega una clave y activa \"Transmitir con Estudio\".").to_string() } else { t!("The Studio's Go live button starts {} platform(s) at once.", "El botón En vivo del Estudio inicia {} plataforma(s) a la vez.", n) };
+        p.text(bar.left_center() + vec2(22.0, 11.0), Align2::LEFT_CENTER, sub, body(12.0), FAINT);
+        let b = Rect::from_min_size(pos2(bar.right() - 18.0 - 150.0, bar.center().y - 17.0), vec2(150.0, 34.0));
+        if pill(ui, b, "live-to-studio", l("Go to Studio", "Ir al Estudio"), Color32::WHITE, Color32::BLACK, semibold(13.5)).clicked() {
+            app.page = Page::Studio;
+        }
+    }
+    let area = Rect::from_min_max(pos2(area.left(), bar.bottom() + 16.0), area.max);
     let cols = if area.width() < 760.0 { 1 } else if area.width() < 1180.0 { 2 } else { 3 };
     let gap = 16.0;
     let rows = (Platform::ALL.len() + 1).div_ceil(cols);
@@ -1720,7 +1734,10 @@ fn platform_card(app: &mut App, ui: &mut Ui, card: Rect, p: Platform) {
                 }
             }
             let key = app.key_mut(p);
-            ui.add(egui::TextEdit::singleline(key).password(true).hint_text(l("Stream key", "Clave de transmisión")).desired_width(inner.width()));
+            if ui.add(egui::TextEdit::singleline(key).password(true).hint_text(l("Stream key", "Clave de transmisión")).desired_width(inner.width())).changed() {
+                let k = key.trim().to_string();
+                let _ = if k.is_empty() { crate::win::creds::delete(p.id()) } else { crate::win::creds::set(p.id(), &k) };
+            }
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Vertical 9:16").color(MUTED).size(13.0)).on_hover_text(l(
                     "Sends your vertical (9:16) layout, the one in the Studio's 9:16 preview",
@@ -1736,18 +1753,36 @@ fn platform_card(app: &mut App, ui: &mut Ui, card: Rect, p: Platform) {
                 }
             });
         });
-        ui.add_space(4.0);
-        let (r, _) = ui.allocate_exact_size(vec2(150.0, 40.0), Sense::hover());
-        let ready = app.status.ready;
-        if on {
-            if pill(ui, r, &format!("stop-{}", p.id()), l("■  Stop", "■  Detener"), RED, Color32::WHITE, semibold(14.0)).clicked() {
-                app.stop_stream(p);
-            }
-        } else if pill(ui, r, &format!("go-{}", p.id()), l("●  Go live", "●  Transmitir"), if ready { Color32::WHITE } else { Color32::from_gray(90) }, Color32::BLACK, semibold(14.0)).clicked() && ready {
-            app.start_stream(p);
+        // Part of the Studio's Go live, or not.
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            let ready = app.stream_ready(p);
+            let mut inc = ready && app.settings.go_live.as_ref().is_none_or(|v| v.contains(&p));
+            ui.label(egui::RichText::new(l("Go live with Studio", "Transmitir con Estudio")).color(if ready { TEXT } else { FAINT }).size(13.0)).on_hover_text(if ready {
+                l("On: the Studio's Go live button starts this one too", "Activado: el botón En vivo del Estudio también inicia esta")
+            } else {
+                l("Add the stream key (and server URL) first", "Primero agrega la clave (y la URL del servidor)")
+            });
+            ui.add_enabled_ui(ready, |ui| {
+                if toggle(ui, &mut inc).changed() {
+                    let mut list: Vec<Platform> = app.settings.go_live.clone().unwrap_or_else(|| Platform::ALL.into_iter().filter(|q| app.stream_ready(*q)).collect());
+                    list.retain(|q| *q != p);
+                    if inc {
+                        list.push(p);
+                    }
+                    app.settings.go_live = Some(list);
+                    let _ = app.settings.save();
+                }
+            });
+        });
+        ui.add_space(6.0);
+        // While it's live: its state, and End for just this one.
+        let (r, _) = ui.allocate_exact_size(vec2(if on { 110.0 } else { 0.0 }, 36.0), Sense::hover());
+        if on && pill(ui, r, &format!("stop-{}", p.id()), l("■  End", "■  Terminar"), RED, Color32::WHITE, semibold(13.0)).on_hover_text(l("End only this platform", "Terminar solo esta plataforma")).clicked() {
+            app.stop_stream(p);
         }
         let painter = ui.painter();
-        let sx = r.right() + 14.0;
+        let sx = if on { r.right() + 14.0 } else { r.left() };
         match &status {
             Some(s) => {
                 let col = if s.live { GREEN } else { ORANGE };
