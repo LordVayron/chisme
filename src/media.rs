@@ -56,11 +56,14 @@ pub struct Item {
     pub group: String,
     /// Start again when it ends (clips and sounds), until stopped.
     pub looped: bool,
+    /// A sound pad's color in the Studio (index into the pad colors; None:
+    /// one picked from its place).
+    pub color: Option<u8>,
 }
 
 impl Default for Item {
     fn default() -> Self {
-        Item { name: String::new(), path: String::new(), kind: Kind::Sound, volume: 1.0, group: String::new(), looped: false }
+        Item { name: String::new(), path: String::new(), kind: Kind::Sound, volume: 1.0, group: String::new(), looped: false, color: None }
     }
 }
 
@@ -77,7 +80,7 @@ pub fn kind_of(path: &Path) -> Option<Kind> {
 }
 
 pub fn item(path: &Path) -> Option<Item> {
-    Some(Item { name: path.file_stem()?.to_string_lossy().into_owned(), path: path.to_string_lossy().into_owned(), kind: kind_of(path)?, volume: 1.0, group: String::new(), looped: false })
+    Some(Item { name: path.file_stem()?.to_string_lossy().into_owned(), path: path.to_string_lossy().into_owned(), kind: kind_of(path)?, volume: 1.0, group: String::new(), looped: false, color: None })
 }
 
 pub const EXTENSIONS: [&str; 14] = ["mp3", "wav", "m4a", "aac", "wma", "flac", "mp4", "mov", "m4v", "wmv", "avi", "png", "jpg", "jpeg"];
@@ -412,7 +415,7 @@ pub fn starter_sounds() -> Vec<Item> {
             if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) != bytes.len() as u64 {
                 std::fs::write(&path, bytes).ok()?;
             }
-            Some(Item { name: name.to_string(), path: path.to_string_lossy().into_owned(), kind: Kind::Sound, volume: 1.0, group: group.clone(), looped: false })
+            Some(Item { name: name.to_string(), path: path.to_string_lossy().into_owned(), kind: Kind::Sound, volume: 1.0, group: group.clone(), looped: false, color: None })
         })
         .collect()
 }

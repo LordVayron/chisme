@@ -213,6 +213,8 @@ pub struct Status {
     pub warnings: Vec<String>,
     pub label: String,
     pub out_size: (u32, u32),
+    /// The captured screen or window's size.
+    pub content: (u32, u32),
     pub fps: u32,
     pub bitrate: f64,
     pub cam: Option<(String, (u32, u32), f64)>,
@@ -391,6 +393,12 @@ struct Player {
     /// The last content decoded ends at `end` (file seconds).
     end: f64,
     duration: f64,
+    /// A loop's next pass: decoding already, it waits for `start_at` (the
+    /// moment the pass before it ends) so there's no gap between them.
+    hold: bool,
+    start_at: Option<f64>,
+    /// This pass already made its next one.
+    next_made: bool,
 }
 
 impl Player {
@@ -398,7 +406,19 @@ impl Player {
         let video = (item.kind == MediaKind::Video).then_some(out);
         let mut dec = Decoder::open(&item.path, video);
         let streams = std::mem::take(&mut dec.streams).into_iter().map(|rx| (rx, None, false)).collect();
-        Player { key: item.path.clone(), item: item.clone(), volume: item.volume, _dec: dec, streams, start: None, created: crate::win::now(), frames: VecDeque::new(), tex: None, end: 0.0, duration: 0.0 }
+        Player { key: item.path.clone(), item: item.clone(), volume: item.volume, _dec: dec, streams, start: None, created: crate::win::now(), frames: VecDeque::new(), tex: None, end: 0.0, duration: 0.0, hold: false, start_at: None, next_made: false }
+    }
+
+    /// The next pass of a loop, started early so it's ready on time.
+    fn next_pass(item: &crate::media::Item, out: (u32, u32)) -> Player {
+        let mut p = Player::new(item, out);
+        p.hold = true;
+        p
+    }
+
+    /// Every stream has been decoded and taken: `end` is final.
+    fn decoded(&self) -> bool {
+        self.streams.iter().all(|s| s.2 && s.1.is_none())
     }
 
     fn progress(&self, t: f64) -> f32 {
@@ -435,7 +455,15 @@ impl Player {
             if !self.streams.iter().all(|s| s.1.is_some() || s.2) && t - self.created < 1.0 {
                 return Ok(None);
             }
-            self.start = Some(t + 0.03);
+            if self.hold {
+                // A loop's next pass begins right where the last one ends.
+                match self.start_at {
+                    Some(a) => self.start = Some(a.max(t)),
+                    None => return Ok(None),
+                }
+            } else {
+                self.start = Some(t + 0.03);
+            }
         }
         for si in 0..self.streams.len() {
             loop {
@@ -967,8 +995,8 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                             media_image = if media_image.as_deref() == Some(item.path.as_str()) { None } else { Some(item.path) };
                         }
                         _ => {
-                            if let Some(i) = players.iter().position(|p| p.key == item.path) {
-                                players.remove(i);
+                            if players.iter().any(|p| p.key == item.path) {
+                                players.retain(|p| p.key != item.path);
                             } else {
                                 if monitor.is_none() {
                                     match Monitor::start() {
@@ -1099,15 +1127,54 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
             }
             // Looping clips and sounds start again (the setting is read live,
             // so turning loop on or off applies to what is playing).
+            // The next pass starts decoding ~1.5 s before the end and begins
+            // exactly when this one ends: no gap, no black frame.
+            players.retain(|p| !(p.hold && p.start.is_none() && !live.media_loop.contains(&p.key)));
             let mut again = vec![];
-            players.retain(|p| {
-                let done = p.done(t);
-                if done && live.media_loop.contains(&p.key) {
-                    again.push(p.item.clone());
+            for i in 0..players.len() {
+                let p = &players[i];
+                let looped = live.media_loop.contains(&p.key);
+                if looped && !p.next_made {
+                    if let Some(s) = p.start {
+                        let near = (p.duration > 0.0 && t - s > p.duration - 1.5) || p.decoded();
+                        if near {
+                            again.push(i);
+                        }
+                    }
                 }
-                !done
+            }
+            for i in again {
+                players[i].next_made = true;
+                let it = players[i].item.clone();
+                players.push(Player::next_pass(&it, out));
+            }
+            // Its start, once this pass's length is known for sure.
+            for i in 0..players.len() {
+                if players[i].next_made && players[i].decoded() {
+                    let (key, s, end) = (players[i].key.clone(), players[i].start, players[i].end);
+                    if let (Some(s), Some(n)) = (s, players.iter_mut().find(|n| n.key == key && n.hold && n.start_at.is_none())) {
+                        n.start_at = Some(s + end);
+                    }
+                }
+            }
+            // A pass ends once it's done and its next one shows (or has
+            // nothing to show, like a sound).
+            let showing: Vec<String> = players.iter().filter(|p| p.start.is_some_and(|s| t >= s) && !p.done(t) && (p.tex.is_some() || p.item.kind != MediaKind::Video)).map(|p| p.key.clone()).collect();
+            let mut late = vec![];
+            players.retain(|p| {
+                if !p.done(t) {
+                    return true;
+                }
+                let looped = live.media_loop.contains(&p.key);
+                // Loop turned on at the very end: no next pass yet.
+                if looped && !p.next_made {
+                    late.push(p.item.clone());
+                    return false;
+                }
+                // Keep the last picture up until the next pass has one.
+                p.next_made && looped && !showing.contains(&p.key) && t - p.start.unwrap_or(t) - p.end < 1.0
             });
-            for it in again {
+            for it in late {
                 players.push(Player::new(&it, out));
             }
 
@@ -1371,8 +1438,10 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                 st.peak = peak;
                 st.streams = lives.iter().filter(|o| !o.is_replay()).map(|o| o.status()).collect();
                 st.replay = lives.iter().find_map(|o| o.replay_stats());
-                st.media = players.iter().map(|p| (p.key.clone(), p.progress(t))).collect();
+                // One entry per item: the pass that's playing.
+                st.media = players.iter().filter(|p| !p.hold || p.start.is_some_and(|s| t >= s)).map(|p| (p.key.clone(), p.progress(t))).collect();
                 st.media_image = media_image.clone();
+                st.content = cap.info().content;
                 st.vbg_ms = vbg_worker.as_ref().map(|w| w.mask.lock().unwrap().ms);
                 st.cam_controls = cam.as_ref().map(|c| c.controls.lock().unwrap().list.clone()).unwrap_or_default();
                 if let Some(r) = &rec {
@@ -1453,12 +1522,25 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
     for layer in layout.layers.iter().filter(|l| l.visible) {
         let rect = layer.px(ow, oh);
         let style = layer.style();
+        let fx = layer.fx();
+        // The shown part's shape: the picture's, cut by the crop.
+        let cut = |size: (u32, u32)| size.0 as f64 * fx.crop[2] / (size.1.max(1) as f64 * fx.crop[3]).max(1e-6);
         match layer.source {
             LayerSource::Screen => {
-                let aspect = content.0 as f64 / content.1.max(1) as f64;
+                let aspect = cut(content);
                 let r = if layer.fill { rect } else { fit_in(rect, aspect) };
                 let size = ((r[2] as u32).max(2) & !1, (r[3] as u32).max(2) & !1);
-                let crop = if layer.fill { crop_to(content, size.0 as f64 / size.1 as f64) } else { (0, 0, content.0, content.1) };
+                // The crop happens in the scaler (sharp text), so the draw
+                // below shows the whole of what it made.
+                let [cx, cy, cw, ch] = fx.crop;
+                let sub = (((cx * content.0 as f64) as u32), ((cy * content.1 as f64) as u32), ((cw * content.0 as f64) as u32).max(2), ((ch * content.1 as f64) as u32).max(2));
+                let crop = if layer.fill {
+                    let c = crop_to((sub.2, sub.3), size.0 as f64 / size.1 as f64);
+                    (sub.0 + c.0, sub.1 + c.1, c.2, c.3)
+                } else {
+                    sub
+                };
+                let fx = crate::win::overlay::Fx { crop: [0.0, 0.0, 1.0, 1.0], ..fx };
                 let i = match pipe.layer_tex.iter().position(|t| t.0 == size) {
                     Some(i) => i,
                     None => {
@@ -1473,14 +1555,14 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 };
                 let (tex, srv) = (pipe.layer_tex[i].1.clone(), pipe.layer_tex[i].2.clone());
                 pipe.scale.blit_sized(&cap.latest, crop, &tex, size)?;
-                pipe.overlay.draw_texture(&srv, size, [1.0, 1.0], Some([r[0], r[1], size.0 as f64, size.1 as f64]), &style)?;
+                pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some([r[0], r[1], size.0 as f64, size.1 as f64]), &style, false, &fx)?;
             }
             LayerSource::Camera => {
                 let (Some(c), Some(srv)) = (cam, pipe.overlay.cam()) else {
                     continue;
                 };
-                let r = if layer.fill { rect } else { fit_in(rect, c.size.0 as f64 / c.size.1.max(1) as f64) };
-                pipe.overlay.draw_texture(&srv, c.size, [1.0, 1.0], Some(r), &style)?;
+                let r = if layer.fill { rect } else { fit_in(rect, cut(c.size)) };
+                pipe.overlay.draw_texture_fx(&srv, c.size, [1.0, 1.0], Some(r), &style, false, &fx)?;
             }
             LayerSource::Image => {
                 let Some(path) = layer.image.clone() else {
@@ -1490,8 +1572,8 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 let Some((size, srv)) = picture(gpu, pipe, &key, || load_picture(&path)) else {
                     continue;
                 };
-                let r = if layer.fill { rect } else { fit_in(rect, size.0 as f64 / size.1.max(1) as f64) };
-                pipe.overlay.draw_texture_alpha(&srv, size, [1.0, 1.0], Some(r), &style, true)?;
+                let r = if layer.fill { rect } else { fit_in(rect, cut(size)) };
+                pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some(r), &style, true, &fx)?;
             }
             LayerSource::Text => {
                 let (w, h) = (rect[2] as usize, rect[3] as usize);
@@ -1502,14 +1584,15 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 }) else {
                     continue;
                 };
-                pipe.overlay.draw_texture_alpha(&srv, size, [1.0, 1.0], Some(rect), &style, true)?;
+                let fx = crate::win::overlay::Fx { crop: [0.0, 0.0, 1.0, 1.0], ..fx };
+                pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some(rect), &style, true, &fx)?;
             }
             LayerSource::Guest => {
                 let Some((size, srv)) = guest_texture(gpu, pipe, layer.guest as usize) else {
                     continue;
                 };
-                let r = if layer.fill { rect } else { fit_in(rect, size.0 as f64 / size.1.max(1) as f64) };
-                pipe.overlay.draw_texture(&srv, size, [1.0, 1.0], Some(r), &style)?;
+                let r = if layer.fill { rect } else { fit_in(rect, cut(size)) };
+                pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some(r), &style, false, &fx)?;
             }
         }
     }

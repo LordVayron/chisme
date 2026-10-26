@@ -159,8 +159,20 @@ pub struct App {
     pub chat_setup: bool,
     /// A scene being dragged in the bar under the preview (its index).
     pub pin_drag: Option<usize>,
+    /// Templates page: every template, not just the studio's.
+    pub templates_all: bool,
+    /// The Studio's Media Board strip: editing (order, colors), and the tile
+    /// being dragged.
+    pub strip_edit: bool,
+    pub strip_drag: Option<usize>,
     pub chat_key: String,
     pub drag: Option<editor::Drag>,
+    /// Crop mode: the selected layer's handles cut its picture.
+    pub crop_mode: bool,
+    /// Layout undo / redo, and the state last kept.
+    pub undo: Vec<editor::Snapshot>,
+    pub redo: Vec<editor::Snapshot>,
+    pub undo_base: Option<editor::Snapshot>,
     pub guides: (Option<f64>, Option<f64>),
     pub save_dialog: Option<SaveDialog>,
     /// Recordings page: the ones ticked, and a delete waiting for "Yes".
@@ -174,7 +186,20 @@ pub struct App {
     /// made, and camera thumbnails (identity -> frame counter, texture).
     pub guest_room: Option<crate::guests::Room>,
     pub guest_secret: String,
-    pub guest_links: Vec<String>,
+    /// Invite links made this session: (name, link).
+    pub guest_links: Vec<(String, String)>,
+    /// The name typed for the next invite, and the server settings shown.
+    pub guest_name: String,
+    pub guest_setup: bool,
+    /// Asking before ending every stream.
+    pub end_live_ask: bool,
+    /// The recording was started by Go live (so ending the stream stops it),
+    /// and a platform has been on since.
+    pub rec_by_live: bool,
+    pub live_seen: bool,
+    pub live_rec_at: std::time::Instant,
+    /// When the app started (tests).
+    pub started: std::time::Instant,
     pub guest_thumbs: std::collections::HashMap<String, (u64, egui::TextureHandle)>,
 }
 
@@ -258,8 +283,15 @@ impl App {
             chat,
             chat_setup: false,
             pin_drag: None,
+            templates_all: false,
+            strip_edit: false,
+            strip_drag: None,
             chat_key: String::new(),
             drag: None,
+            crop_mode: false,
+            undo: vec![],
+            redo: vec![],
+            undo_base: None,
             guides: (None, None),
             save_dialog: None,
             selected: Default::default(),
@@ -269,6 +301,13 @@ impl App {
             guest_room: None,
             guest_secret: crate::win::creds::get("livekit").unwrap_or_default(),
             guest_links: vec![],
+            guest_name: String::new(),
+            guest_setup: false,
+            end_live_ask: false,
+            rec_by_live: false,
+            live_seen: false,
+            live_rec_at: std::time::Instant::now(),
+            started: std::time::Instant::now(),
             guest_thumbs: Default::default(),
         }
     }
@@ -417,6 +456,67 @@ impl App {
         }
     }
 
+    /// Platforms ready to go live: a key and a server URL.
+    pub fn stream_ready(&self, p: Platform) -> bool {
+        !self.key(p).trim().is_empty() && !self.settings.stream_url(p).is_empty()
+    }
+
+    /// The Go live button's platforms: the ones picked, else every ready one.
+    pub fn go_live_targets(&self) -> Vec<Platform> {
+        let ready: Vec<Platform> = Platform::ALL.into_iter().filter(|p| self.stream_ready(*p)).collect();
+        match &self.settings.go_live {
+            Some(picked) => ready.into_iter().filter(|p| picked.contains(p)).collect(),
+            None => ready,
+        }
+    }
+
+    /// Start every picked platform at once.
+    pub fn go_live(&mut self) {
+        let targets = self.go_live_targets();
+        if targets.is_empty() {
+            self.toast(l("Add a stream key on the Live page first", "Primero agrega una clave en la página Transmitir"));
+            self.page = Page::Live;
+            return;
+        }
+        for p in &targets {
+            if self.stream_id(*p).is_none() {
+                self.start_stream(*p);
+            }
+        }
+        let names: Vec<&str> = targets.iter().map(|p| p.label()).collect();
+        // Record while live: the whole stream on this PC too.
+        if self.settings.record_live && !self.status.recording {
+            self.toggle_record();
+            self.rec_by_live = true;
+            self.live_seen = false;
+            self.live_rec_at = std::time::Instant::now();
+            self.toast(t!("Going live on {} and recording", "Transmitiendo en {} y grabando", names.join(", ")));
+        } else {
+            self.toast(t!("Going live on {}", "Transmitiendo en {}", names.join(", ")));
+        }
+    }
+
+    /// End every platform stream (the replay buffer keeps going).
+    pub fn end_live(&mut self) {
+        let ids: Vec<u64> = self.status.streams.iter().filter(|s| s.platform.is_some()).map(|s| s.id).collect();
+        if let Some(e) = &self.engine {
+            for id in ids {
+                e.send(Cmd::StopStream(id));
+            }
+        }
+        self.stop_live_recording();
+        self.toast(l("Stream ended", "Transmisión terminada"));
+    }
+
+    /// Stop the recording Go live started (if it's still going).
+    fn stop_live_recording(&mut self) {
+        if self.rec_by_live && self.status.recording {
+            self.toggle_record();
+        }
+        self.rec_by_live = false;
+        self.live_seen = false;
+    }
+
     pub fn stop_stream(&mut self, p: Platform) {
         if let (Some(e), Some(id)) = (&self.engine, self.stream_id(p)) {
             e.send(Cmd::StopStream(id));
@@ -434,12 +534,13 @@ impl App {
     /// Switch to a template's layout (and brand, if it has one), live.
     pub fn apply_template(&mut self, t: &crate::templates::Template) {
         self.settings.switch += 1;
+        self.settings.keep_vertical();
         self.settings.layout = Some(t.layout.clone());
-        self.settings.layout_v = t.vertical.clone();
         if let Some(b) = &t.brand {
             self.settings.brand = b.clone();
         }
         self.settings.template = Some(t.name.clone());
+        self.settings.load_vertical(t.vertical.clone());
         self.sel_layer = None;
         self.settings_changed();
         self.toast(t!("Template: {}", "Plantilla: {}", t.name));
@@ -454,9 +555,18 @@ impl App {
         let t = crate::templates::Template { name: name.trim().to_string(), layout, brand: Some(self.settings.brand.clone()), assets: vec![], group: group.trim().to_string(), vertical: self.settings.layout_v.clone() };
         match crate::templates::save(&t) {
             Ok(_) => {
+                let v = self.settings.vertical_layout();
                 self.settings.template = Some(t.name.clone());
+                self.settings.layout_v = Some(v);
+                self.settings.keep_vertical();
+                // It joins the studio you're in (and its scene bar).
+                let pin = crate::settings::Pin::Template(t.name.clone());
+                if !self.settings.pinned.contains(&pin) {
+                    self.settings.pinned.push(pin);
+                }
                 let _ = self.settings.save();
-                self.toast(t!("Template saved: {}", "Plantilla guardada: {}", t.name));
+                let studio = self.settings.studios.get(self.settings.studio).map(|s| s.name.clone()).unwrap_or_default();
+                self.toast(t!("Saved: {} (in {})", "Guardada: {} (en {})", t.name, studio));
             }
             Err(e) => self.toast(t!("Couldn't save the template: {:#}", "No pude guardar la plantilla: {:#}", e)),
         }
@@ -605,6 +715,20 @@ impl App {
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
+        // A Go live recording ends with the last stream (ended one by one,
+        // or dropped), and lets go if you stopped it yourself.
+        if self.rec_by_live {
+            let streaming = self.status.streams.iter().any(|s| s.platform.is_some());
+            if streaming {
+                self.live_seen = true;
+            } else if self.live_seen {
+                self.stop_live_recording();
+            }
+            // (Give the recording a few seconds to start first.)
+            if !self.status.recording && self.live_seen && self.live_rec_at.elapsed().as_secs() > 4 {
+                self.rec_by_live = false;
+            }
+        }
         // Engine status and preview.
         if let Some(e) = &self.engine {
             self.status = e.status();
@@ -741,6 +865,19 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Tests only: CHISME_FAKE_WHEEL="x,y,secs" scrolls the mouse wheel at
+    /// (x, y) a few times after `secs`, without touching the real mouse.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        let Ok(v) = std::env::var("CHISME_FAKE_WHEEL") else { return };
+        let n: Vec<f32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        let (Some(&x), Some(&y), Some(&after)) = (n.first(), n.get(1), n.get(2)) else { return };
+        let t = self.started.elapsed().as_secs_f32();
+        if t > after && t < after + 1.5 {
+            raw.events.push(egui::Event::PointerMoved(egui::pos2(x, y)));
+            raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -40.0), phase: egui::TouchPhase::Move, source: if n.get(3) == Some(&1.0) { egui::MouseWheelSource::Trackpad } else { egui::MouseWheelSource::Wheel }, modifiers: egui::Modifiers::NONE });
+        }
+    }
+
     /// Runs even while the window is hidden, so the tray and hotkeys work.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll(ctx);

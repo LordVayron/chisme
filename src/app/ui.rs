@@ -43,6 +43,7 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
         }
         toast(app, ui, full);
         save_dialog(app, ui.ctx());
+        end_live_dialog(app, ui.ctx());
     });
 }
 
@@ -293,21 +294,26 @@ fn header(app: &mut App, ui: &mut Ui, content: Rect) -> Rect {
 /// editor while building a custom scene) and the Media Board. Wide windows
 /// get two columns; narrow ones stack everything and scroll.
 fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
-    let narrow = area.width() < 1100.0;
-    let media_h = 158.0;
     let audio_fold = app.settings.fold_audio;
     let cam_fold = app.settings.fold_camera;
+    // Chat only while you're live.
+    let live = app.status.streams.iter().any(|s| s.live);
+    // Editing a layout keeps the Layers card beside the preview whenever
+    // there's room, so you see both.
+    let editing = !cam_fold && app.settings.layout.is_some() && app.settings.template.is_none();
+    let narrow = area.width() < 1100.0 && !(editing && area.width() >= 820.0);
+    let media_h = 158.0;
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("studio-page").auto_shrink([false; 2]).show(ui, |ui| {
             let w = area.width() - 4.0;
             if narrow {
                 let pv_h = (w * 9.0 / 16.0 + 96.0).max(330.0);
                 let audio_h = if audio_fold { FOLDED_H } else { 240.0 };
-                let side_h = if cam_fold { FOLDED_H } else { 380.0 };
+                let side_h = if cam_fold { FOLDED_H } else if app.settings.layout.is_some() && app.settings.template.is_none() { LAYERS_MIN.max(380.0) } else { 380.0 };
                 let half = ((w - 16.0) / 2.0).floor();
                 let stacked = w < 640.0;
                 let cards_h = if stacked { audio_h + 16.0 + side_h } else { audio_h.max(side_h) };
-                let chat_h = if app.settings.fold_chat { FOLDED_H } else { 300.0 };
+                let chat_h = if !live { -16.0 } else if app.settings.fold_chat { FOLDED_H } else { 300.0 };
                 let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + cards_h + chat_h + media_h + 48.0), Sense::hover());
                 let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
                 let y2 = preview_card.bottom() + 16.0;
@@ -321,37 +327,82 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 preview(app, ui, preview_card);
                 audio(app, ui, audio_card);
                 side_card(app, ui, cam_card);
-                super::chat_ui::card(app, ui, chat_card);
+                if live {
+                    super::chat_ui::card(app, ui, chat_card);
+                }
                 super::media_ui::strip(app, ui, media);
             } else {
-                let total = area.height().max(660.0);
+                // Left: the preview with the Media Board under it. Right: a
+                // column of cards where one card (Layers while editing,
+                // Camera otherwise) takes the height the others leave, so
+                // both columns end together with no empty space.
+                let base = area.height().max(660.0);
+                let top_h = base - media_h - 16.0;
+                let audio_h = if audio_fold { FOLDED_H } else { (top_h * 0.36).clamp(200.0, 260.0).floor() };
+                let chat_h = if !live {
+                    0.0
+                } else if app.settings.fold_chat {
+                    FOLDED_H
+                } else if editing {
+                    300.0
+                } else {
+                    ((base - audio_h - 32.0) * 0.45).clamp(160.0, 320.0).floor()
+                };
+                let chat_gap = if live { chat_h + 16.0 } else { 0.0 };
+                let (flex_min, fixed) = if editing {
+                    (LAYERS_MIN, audio_h + 16.0 + chat_gap)
+                } else if cam_fold {
+                    (0.0, audio_h + 16.0 + FOLDED_H + chat_gap)
+                } else {
+                    (200.0, audio_h + 16.0 + chat_gap)
+                };
+                let flex = if editing || !cam_fold { (base - fixed).max(flex_min) } else { 0.0 };
+                let total = base.max(fixed + flex);
                 let (all, _) = ui.allocate_exact_size(vec2(w, total), Sense::hover());
-                let top = Rect::from_min_max(all.min, pos2(all.right(), all.bottom() - media_h - 16.0));
+                let top = Rect::from_min_size(all.min, vec2(w, top_h));
                 // The 9:16 preview, when on, widens the preview card by its own
                 // column; the 16:9 picture keeps its size.
                 let vcol = if app.settings.vertical_preview && app.settings.horizontal_preview { ((top.height() - 24.0 - 64.0 - 30.0) * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
-                let left_w = ((w * 0.64).floor() + vcol).min(w - 16.0 - 380.0);
-                let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
-                let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
-                let audio_h = if audio_fold { FOLDED_H } else { (right.height() * 0.36).clamp(200.0, 260.0).floor() };
-                let audio_card = Rect::from_min_size(right.min, vec2(right.width(), audio_h));
-                // Camera takes what Chat leaves (or the other way round when
-                // Camera is folded).
-                let cam_top = audio_card.bottom() + 16.0;
-                let chat_fold = app.settings.fold_chat;
-                let chat_h = if chat_fold { FOLDED_H } else if cam_fold { (right.bottom() - cam_top - FOLDED_H - 16.0).max(FOLDED_H) } else { ((right.bottom() - cam_top) * 0.45).clamp(160.0, 320.0).floor() };
-                let chat_card = Rect::from_min_max(pos2(right.left(), right.bottom() - chat_h), right.max);
-                let cam_card = if cam_fold { Rect::from_min_size(pos2(right.left(), cam_top), vec2(right.width(), FOLDED_H)) } else { Rect::from_min_max(pos2(right.left(), cam_top), pos2(right.right(), chat_card.top() - 16.0)) };
-                let media = Rect::from_min_max(pos2(all.left(), all.bottom() - media_h), all.max);
+                let side_min = if narrow_edit(w) { 340.0 } else { 380.0 };
+                let left_w = ((w * 0.64).floor() + vcol).min(w - 16.0 - side_min);
+                let preview_card = Rect::from_min_size(top.min, vec2(left_w, top_h));
+                let media = Rect::from_min_size(pos2(all.left(), preview_card.bottom() + 16.0), vec2(left_w, media_h));
+                let rx = preview_card.right() + 16.0;
+                let rw = all.right() - rx;
+                let mut y = all.top();
+                let mut next = |h: f32| {
+                    let r = Rect::from_min_size(pos2(rx, y), vec2(rw, h));
+                    y += h + 16.0;
+                    r
+                };
+                let (audio_card, cam_card, chat_card) = if editing {
+                    let lc = next(flex);
+                    let ac = next(audio_h);
+                    (ac, lc, next(chat_h))
+                } else {
+                    let ac = next(audio_h);
+                    let cc = next(if cam_fold { FOLDED_H } else { flex });
+                    (ac, cc, next(chat_h))
+                };
                 preview(app, ui, preview_card);
                 audio(app, ui, audio_card);
                 side_card(app, ui, cam_card);
-                super::chat_ui::card(app, ui, chat_card);
+                if live {
+                    super::chat_ui::card(app, ui, chat_card);
+                }
                 super::media_ui::strip(app, ui, media);
             }
         });
     });
 }
+
+/// A narrow window while editing: a slimmer Layers column.
+fn narrow_edit(w: f32) -> bool {
+    w < 1100.0
+}
+
+/// The layer editor's smallest height (its settings fit without scrolling).
+const LAYERS_MIN: f32 = 470.0;
 
 /// The layer editor while building a new custom scene; the camera otherwise.
 fn side_card(app: &mut App, ui: &mut Ui, card: Rect) {
@@ -369,8 +420,12 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     let strip_h = 30.0;
     let controls_h = 64.0;
     // One row under the preview: record controls on the left, scenes on the
-    // right, Custom alone in the corner.
-    let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h));
+    // right, Custom alone in the corner. When that doesn't fit, the scenes
+    // get a row of their own (they never disappear).
+    let n_pins = app.settings.pinned.len().max(1) as f32;
+    let stacked = inner.width() < 560.0 + 190.0 + 70.0 * n_pins + 110.0 + 170.0;
+    let scenes_row = if stacked { 58.0 } else { 0.0 };
+    let view = Rect::from_min_max(inner.min, pos2(inner.right(), inner.bottom() - strip_h - controls_h - scenes_row));
     // Each preview on its own dark panel, with a gap between them.
     if app.settings.vertical_preview && app.settings.horizontal_preview && app.status.error.is_none() {
         let vcol = (view.height() * 9.0 / 16.0).floor() + 16.0;
@@ -436,44 +491,21 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             } else {
                 anchor = vimg;
             }
-            if custom && app.settings.layout_v.is_some() {
+            if custom && app.settings.layout_v.as_ref().is_some_and(|v| *v != app.settings.auto_vertical()) {
                 let reset = Rect::from_min_size(pos2(vimg.left() + 10.0, vimg.bottom() - 72.0), vec2(vimg.width() - 20.0, 24.0));
                 if pill(ui, reset, "reset-v", l("Back to automatic", "Volver a automático"), Color32::from_rgba_premultiplied(0, 0, 0, 160), TEXT, semibold(11.0))
                     .on_hover_text(l("Make the 9:16 layout from the 16:9 one again", "Rehacer el layout 9:16 a partir del 16:9"))
                     .clicked()
                 {
-                    app.settings.layout_v = None;
+                    app.settings.layout_v = Some(app.settings.auto_vertical());
+                    app.settings.keep_vertical();
                     app.sel_layer = None;
                     app.settings_changed();
                 }
             }
             vimg_r = Some(vimg);
         }
-        // Show / hide buttons: "9:16" on the 16:9 picture, "16:9" on the
-        // 9:16 one (the 16:9 one can only hide while the 9:16 one shows).
-        let mut toggle_chip = |ui: &mut Ui, at: Rect, id: &str, label: &str, on: bool, vertical_icon: bool, tip: &str| -> bool {
-            let chip = Rect::from_min_size(pos2(at.right() - 12.0 - 72.0, at.bottom() - 12.0 - 26.0), vec2(72.0, 26.0));
-            let r = ui.interact(chip, Id::new(id), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tip);
-            p.rect_filled(chip, CornerRadius::same(13), if r.hovered() { Color32::from_rgba_premultiplied(30, 30, 34, 190) } else { Color32::from_rgba_premultiplied(0, 0, 0, 150) });
-            let ic = Rect::from_center_size(chip.left_center() + vec2(16.0, 0.0), if vertical_icon { vec2(8.0, 14.0) } else { vec2(15.0, 9.0) });
-            let col = if on { ORANGE } else { TEXT };
-            p.rect_stroke(ic, CornerRadius::same(2), Stroke::new(1.5, col), StrokeKind::Inside);
-            text(&p, chip.left_center() + vec2(28.0, 0.0), Align2::LEFT_CENTER, label, semibold(11.0), col);
-            r.clicked()
-        };
-        if let Some(img) = himg
-            && toggle_chip(ui, img, "toggle-v", "9:16", show_v, true, if show_v { l("Hide the vertical (9:16) preview", "Ocultar la vista vertical (9:16)") } else { l("Show the vertical (9:16) preview", "Mostrar la vista vertical (9:16)") })
-        {
-            app.settings.vertical_preview = !show_v;
-            app.settings.horizontal_preview = true;
-            app.settings_changed();
-        }
-        if let Some(vimg) = vimg_r
-            && toggle_chip(ui, vimg, "toggle-h", "16:9", show_h, false, if show_h { l("Hide the horizontal (16:9) preview", "Ocultar la vista horizontal (16:9)") } else { l("Show the horizontal (16:9) preview", "Mostrar la vista horizontal (16:9)") })
-        {
-            app.settings.horizontal_preview = !show_h;
-            app.settings_changed();
-        }
+        let _ = (himg, vimg_r);
         let img = anchor;
         // Show Chisme in recordings (top right).
         {
@@ -551,7 +583,81 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
     if tp.clicked() {
         app.toggle_prompter();
     }
-    let pc = tc;
+    // Go live: every picked platform at once (the arrow picks them).
+    let go_r = Rect::from_min_size(pos2(tc.x + 24.0 + 14.0, cy - 20.0), vec2(124.0, 40.0));
+    let arrow_r = Rect::from_min_size(pos2(go_r.right() + 4.0, go_r.top()), vec2(30.0, 40.0));
+    {
+        let streams: Vec<_> = st.streams.iter().filter(|s| s.platform.is_some()).cloned().collect();
+        let on = !streams.is_empty();
+        let targets = app.go_live_targets();
+        let tip = if on {
+            let names: Vec<&str> = streams.iter().filter_map(|s| s.platform.map(|p| p.label())).collect();
+            t!("Live on {}. Click to end.", "En vivo en {}. Clic para terminar.", names.join(", "))
+        } else if targets.is_empty() {
+            l("Add a stream key on the Live page", "Agrega una clave en la página Transmitir").to_string()
+        } else {
+            let names: Vec<&str> = targets.iter().map(|p| p.label()).collect();
+            t!("Go live on {}", "Transmitir en {}", names.join(", "))
+        };
+        let (label, fill, color) = if on {
+            let live_now = streams.iter().any(|s| s.live);
+            (if live_now { l("■  End live", "■  Terminar") } else { l("Connecting…", "Conectando…") }, RED, Color32::WHITE)
+        } else {
+            (l("((•))  Go live", "((•))  En vivo"), if can { Color32::from_rgb(255, 59, 48) } else { Color32::from_gray(90) }, Color32::WHITE)
+        };
+        if pill(ui, go_r, "go-live", label, fill, color, semibold(14.0)).on_hover_text(tip).clicked() && can {
+            if on {
+                app.end_live_ask = true;
+            } else {
+                app.go_live();
+            }
+        }
+        // Which platforms.
+        ui.scope_builder(UiBuilder::new().max_rect(arrow_r), |ui| {
+            let mut pick = app.settings.go_live.clone().unwrap_or_else(|| Platform::ALL.into_iter().filter(|p| app.stream_ready(*p)).collect());
+            let mut changed = false;
+            let mut open_live = false;
+            ComboBox::from_id_salt("go-live-pick")
+                .width(22.0)
+                .selected_text("")
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show_ui(ui, |ui| {
+                    ui.set_min_width(220.0);
+                    ui.label(egui::RichText::new(l("Go live on", "Transmitir en")).color(MUTED).size(12.0));
+                    for p in Platform::ALL {
+                        let ready = app.stream_ready(p);
+                        let mut c = ready && pick.contains(&p);
+                        let label = if ready { p.label().to_string() } else { t!("{} (no key yet)", "{} (sin clave)", p.label()) };
+                        if ui.add_enabled(ready, egui::Checkbox::new(&mut c, label)).changed() {
+                            pick.retain(|q| *q != p);
+                            if c {
+                                pick.push(p);
+                            }
+                            changed = true;
+                        }
+                    }
+                    ui.separator();
+                    let mut rec = app.settings.record_live;
+                    if ui.checkbox(&mut rec, l("Record while live", "Grabar mientras transmites")).changed() {
+                        app.settings.record_live = rec;
+                        changed = true;
+                    }
+                    if ui.button(l("Stream keys…", "Claves…")).clicked() {
+                        open_live = true;
+                    }
+                })
+                .response
+                .on_hover_text(l("Pick the platforms", "Elige las plataformas"));
+            if changed {
+                app.settings.go_live = Some(pick);
+                let _ = app.settings.save();
+            }
+            if open_live {
+                app.page = super::Page::Live;
+            }
+        });
+    }
+    let pc = pos2(arrow_r.right() - 24.0, cy);
     // Timer.
     let timer = if st.recording { clock(st.rec_secs) } else { "00:00".into() };
     text(&p, pos2(inner.right() - 10.0, inner.bottom() - strip_h / 2.0), Align2::RIGHT_CENTER, timer, display(18.0), if st.recording { TEXT } else { FAINT });
@@ -570,9 +676,11 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
             .cloned()
             .collect();
         let n = pins.len() as f32;
-        let custom_box = Rect::from_min_size(pos2(inner.right() - 6.0 - 92.0, cy - 25.0), vec2(92.0, 50.0));
+        let scy = if stacked { view.bottom() + controls_h + scenes_row / 2.0 } else { cy };
+        let custom_box = Rect::from_min_size(pos2(inner.right() - 6.0 - 92.0, scy - 25.0), vec2(92.0, 50.0));
         // What Record writes, next to the teleprompter.
-        let out_w = 150.0;
+        // Narrower when the card is (it never leaves the card).
+        let out_w = (inner.right() - 6.0 - (pc.x + 40.0)).clamp(96.0, 150.0);
         let out_r = Rect::from_min_size(pos2(pc.x + 24.0 + 16.0, cy - 15.0), vec2(out_w, 30.0));
         {
             use crate::engine::Output;
@@ -609,12 +717,13 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
         }
         // The studio picker sits just left of its scenes.
         let combo_w = 170.0;
-        let left_edge = out_r.right() + 10.0 + combo_w + 10.0;
+        let row_left = if stacked { inner.left() + 6.0 } else { out_r.right() + 10.0 };
+        let left_edge = row_left + combo_w + 10.0;
         let w = (92.0 * n).min(custom_box.left() - 10.0 - left_edge).max(0.0);
-        let seg = Rect::from_min_size(pos2(custom_box.left() - 10.0 - w, cy - 25.0), vec2(w, 50.0));
-        let show_pins = seg.width() > 60.0;
-        let combo = Rect::from_min_size(pos2(if show_pins { seg.left() } else { custom_box.left() } - 10.0 - combo_w, cy - 15.0), vec2(combo_w, 30.0));
-        if combo.left() > out_r.right() + 6.0 {
+        let seg = Rect::from_min_size(pos2(custom_box.left() - 10.0 - w, scy - 25.0), vec2(w, 50.0));
+        let show_pins = seg.width() > 40.0;
+        let combo = Rect::from_min_size(pos2(if show_pins { seg.left() } else { custom_box.left() } - 10.0 - combo_w, scy - 15.0), vec2(combo_w, 30.0));
+        if combo.left() >= row_left - 4.0 {
             let names: Vec<String> = app.settings.studios.iter().map(|s| s.name.clone()).collect();
             let keys: Vec<String> = (0..names.len()).map(|i| if i < 9 { super::hotkeys::Action::Studio(i).combo(&app.settings.hotkeys) } else { String::new() }).collect();
             let cur = app.settings.studio;
@@ -721,11 +830,12 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                 if resp.clicked() {
                     match pin {
                         Some(Pin::Scene(s)) => {
+                            app.settings.keep_vertical();
                             app.settings.scene = *s;
                             app.settings.switch += 1;
                             app.settings.layout = None;
-                            app.settings.layout_v = None;
                             app.settings.template = None;
+                            app.settings.load_vertical(None);
                             app.sel_layer = None;
                             app.settings_changed();
                         }
@@ -751,11 +861,95 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
         (format!("{}", s.drops), l("dropped", "perdidos"), if s.drops > 0 { RED } else { RAINBOW[4] }),
     ];
     let mut x = strip.left() + 10.0;
+    // The stats give way to the controls on the right (view, locks, timer)
+    // when the card is narrow.
+    let n_locks = if app.settings.layout.is_some() && app.settings.template.is_none() { if app.settings.vertical_preview && app.settings.horizontal_preview { 2.0 } else { 1.0 } } else { 0.0 };
+    let room = strip.right() - 96.0 - 174.0 - 50.0 - n_locks * 34.0;
     for (v, label, c) in items {
+        let need = p.layout_no_wrap(v.clone(), semibold(12.5), TEXT).size().x + p.layout_no_wrap(label.to_string(), body(11.5), FAINT).size().x + 22.0;
+        if x + need > room {
+            break;
+        }
         p.circle_filled(pos2(x + 3.0, strip.center().y), 3.0, c);
         let r = text(&p, pos2(x + 12.0, strip.center().y), Align2::LEFT_CENTER, v, semibold(12.5), TEXT);
         let r2 = text(&p, pos2(r.right() + 5.0, strip.center().y), Align2::LEFT_CENTER, label, body(11.5), FAINT);
         x = r2.right() + 22.0;
+    }
+    // What you see here: 16:9, 9:16 or both (what's recorded is the Record
+    // picker's choice).
+    {
+        let (h, v) = (app.settings.horizontal_preview || !app.settings.vertical_preview, app.settings.vertical_preview);
+        let cur = if h && v { 2 } else if v { 1 } else { 0 };
+        let labels = [("16:9", l("Show only the horizontal preview", "Ver solo la vista horizontal")), ("9:16", l("Show only the vertical preview", "Ver solo la vista vertical")), (l("Both", "Ambas"), l("Show both previews side by side", "Ver las dos vistas lado a lado"))];
+        let seg_w = 58.0;
+        let right = strip.right() - 96.0;
+        let left = right - seg_w * 3.0;
+        let view_label = text(&p, pos2(left - 8.0, strip.center().y), Align2::RIGHT_CENTER, l("View", "Vista"), body(11.5), FAINT);
+        // Lock the custom layout, 16:9 and 9:16 apart (only while editing
+        // one; a lock per preview shown).
+        if app.settings.layout.is_some() && app.settings.template.is_none() {
+            let mut locks: Vec<bool> = vec![];
+            if h {
+                locks.push(false);
+            }
+            if v {
+                locks.push(true);
+            }
+            let mut pw = 66.0;
+            let mut right_x = view_label.left() - 14.0;
+            // Short of room: just the padlocks.
+            if right_x - (pw + 6.0) * (locks.len() as f32) < x - 8.0 {
+                pw = 28.0;
+            }
+            for &vert in locks.iter().rev() {
+                let locked = if vert { app.settings.layout_locked_v } else { app.settings.layout_locked };
+                let name = if vert { "9:16" } else { "16:9" };
+                let lk = Rect::from_min_max(pos2(right_x - pw, strip.center().y - 12.0), pos2(right_x, strip.center().y + 12.0));
+                right_x = lk.left() - 6.0;
+                let resp = ui.interact(lk, Id::new(("layout-lock", vert)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if locked {
+                    t!("{} locked: its layers can't be moved. Click to edit again.", "{} bloqueado: sus capas no se mueven. Clic para editar de nuevo.", name)
+                } else {
+                    t!("Lock the {} layout so nothing moves by accident", "Bloquea el layout {} para no mover nada por accidente", name)
+                });
+                p.rect_filled(lk, CornerRadius::same(12), if locked { Color32::from_rgba_premultiplied(90, 44, 0, 160) } else if resp.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 110) } else { Color32::from_rgba_premultiplied(0, 0, 0, 110) });
+                // A padlock: body and shackle (closed or open).
+                let c = if pw > 30.0 { lk.left_center() + vec2(14.0, 2.0) } else { lk.center() + vec2(0.0, 2.0) };
+                let col = if locked { ORANGE } else { TEXT };
+                p.rect_filled(Rect::from_center_size(c, vec2(11.0, 8.0)), CornerRadius::same(2), col);
+                let sh = if locked { vec![c + vec2(-3.5, -4.0), c + vec2(-3.5, -7.0), c + vec2(0.0, -9.5), c + vec2(3.5, -7.0), c + vec2(3.5, -4.0)] } else { vec![c + vec2(-3.5, -4.0), c + vec2(-3.5, -7.0), c + vec2(0.0, -9.5), c + vec2(3.5, -7.5)] };
+                p.add(EShape::line(sh, Stroke::new(1.6, col)));
+                if pw > 30.0 {
+                    text(&p, lk.left_center() + vec2(26.0, 0.0), Align2::LEFT_CENTER, name, semibold(11.0), col);
+                }
+                if resp.clicked() {
+                    if vert {
+                        app.settings.layout_locked_v = !locked;
+                    } else {
+                        app.settings.layout_locked = !locked;
+                    }
+                    app.drag = None;
+                    app.settings_changed();
+                }
+            }
+        }
+        let bg = Rect::from_min_max(pos2(left, strip.center().y - 12.0), pos2(right, strip.center().y + 12.0));
+        p.rect_filled(bg, CornerRadius::same(12), Color32::from_rgba_premultiplied(0, 0, 0, 110));
+        for (k, (label, tip)) in labels.iter().enumerate() {
+            let r = Rect::from_min_size(pos2(left + seg_w * k as f32, bg.top()), vec2(seg_w, bg.height())).shrink(2.0);
+            let resp = ui.interact(r, Id::new(("view-pick", k)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(*tip);
+            let sel = k == cur;
+            if sel {
+                p.rect_filled(r, CornerRadius::same(10), Color32::WHITE);
+            } else if resp.hovered() {
+                p.rect_filled(r, CornerRadius::same(10), Color32::from_rgba_premultiplied(60, 60, 66, 110));
+            }
+            text(&p, r.center(), Align2::CENTER_CENTER, *label, semibold(11.0), if sel { Color32::BLACK } else { TEXT });
+            if resp.clicked() && !sel {
+                app.settings.horizontal_preview = k != 1;
+                app.settings.vertical_preview = k != 0;
+                app.settings_changed();
+            }
+        }
     }
 }
 
@@ -763,7 +957,7 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
 /// (outlined) and the camera (a filled head-and-shoulders block).
 /// The camera's own settings (what its driver offers: zoom, pan/tilt,
 /// exposure, image), like OBSBOT Center's basic panel.
-fn cam_controls(app: &mut App, ui: &mut Ui) {
+pub(super) fn cam_controls(app: &mut App, ui: &mut Ui) {
     use crate::win::camera::Ctl;
     let controls = app.status.cam_controls.clone();
     if controls.is_empty() {
@@ -1125,13 +1319,14 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
         }
         if app.cam_tab == 1 {
             ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
-                ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| cam_controls(app, ui));
+                ScrollArea::vertical().id_salt("camera-controls").max_height(inner.height()).auto_shrink([false; 2]).show(ui, |ui| cam_controls(app, ui));
             });
             return;
         }
     }
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
+        ScrollArea::vertical().id_salt("camera-card").max_height(inner.height()).scroll_source(egui::scroll_area::ScrollSource::ALL).auto_shrink([false; 2]).show(ui, |ui| {
         if app.settings.camera.is_none() || cam.is_none() {
             ui.add_space(6.0);
             let msg = if app.settings.camera.is_some() && app.status.ready { l("The camera didn't respond. Pick another:", "La cámara no respondió. Elige otra:") } else { l("Add your camera to the video:", "Agrega tu cámara al video:") };
@@ -1382,7 +1577,7 @@ fn recordings(app: &mut App, ui: &mut Ui, card: Rect, max_rows: usize, compact: 
     let recs: Vec<(std::path::PathBuf, String, u64, SystemTime)> =
         app.recordings.iter().take(if compact { max_rows } else { usize::MAX }).map(|r| (r.path.clone(), r.name.clone(), r.bytes, r.modified)).collect();
     ui.scope_builder(UiBuilder::new().max_rect(list), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("recordings-list").auto_shrink([false; 2]).show(ui, |ui| {
             for (i, (path, name, bytes, modified)) in recs.iter().enumerate() {
                 let (r, _) = ui.allocate_exact_size(vec2(list.width(), row_h), Sense::hover());
                 let rr = r.shrink2(vec2(0.0, 4.0));
@@ -1476,11 +1671,34 @@ fn brand(p: Platform) -> Color32 {
 }
 
 fn live(app: &mut App, ui: &mut Ui, area: Rect) {
+    let bar = Rect::from_min_size(area.min, vec2(area.width(), 56.0));
+    {
+        let p = ui.painter().clone();
+        theme::card(&p, bar);
+        let n = app.go_live_targets().len();
+        p.text(bar.left_center() + vec2(22.0, -8.0), Align2::LEFT_CENTER, l("Turn on the platforms you want, then go live from the Studio page", "Activa las plataformas que quieras y transmite desde la página Estudio"), medium(14.0), TEXT);
+        let sub = if n == 0 { l("No platform is on yet: add a stream key and turn on \"Go live with Studio\".", "Aún no hay ninguna: agrega una clave y activa \"Transmitir con Estudio\".").to_string() } else { t!("The Studio's Go live button starts {} platform(s) at once.", "El botón En vivo del Estudio inicia {} plataforma(s) a la vez.", n) };
+        p.text(bar.left_center() + vec2(22.0, 11.0), Align2::LEFT_CENTER, sub, body(12.0), FAINT);
+        let b = Rect::from_min_size(pos2(bar.right() - 18.0 - 150.0, bar.center().y - 17.0), vec2(150.0, 34.0));
+        if pill(ui, b, "live-to-studio", l("Go to Studio", "Ir al Estudio"), Color32::WHITE, Color32::BLACK, semibold(13.5)).clicked() {
+            app.page = Page::Studio;
+        }
+        let tr = Rect::from_min_max(pos2(b.left() - 16.0 - 200.0, bar.top()), pos2(b.left() - 16.0, bar.bottom()));
+        ui.scope_builder(UiBuilder::new().max_rect(tr).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+            let mut on = app.settings.record_live;
+            if toggle(ui, &mut on).on_hover_text(l("Go live also records the whole stream to your Videos folder; ending the stream stops it", "En vivo también graba toda la transmisión en tu carpeta Videos; al terminar se detiene")).changed() {
+                app.settings.record_live = on;
+                let _ = app.settings.save();
+            }
+            ui.label(egui::RichText::new(l("Record while live", "Grabar mientras transmites")).color(TEXT).size(13.0));
+        });
+    }
+    let area = Rect::from_min_max(pos2(area.left(), bar.bottom() + 16.0), area.max);
     let cols = if area.width() < 760.0 { 1 } else if area.width() < 1180.0 { 2 } else { 3 };
     let gap = 16.0;
     let rows = (Platform::ALL.len() + 1).div_ceil(cols);
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("live-page").auto_shrink([false; 2]).show(ui, |ui| {
             let width = area.width() - 4.0;
             let w = (width - gap * (cols - 1) as f32) / cols as f32;
             let h = ((area.height() - gap) / 2.0).max(300.0);
@@ -1530,7 +1748,10 @@ fn platform_card(app: &mut App, ui: &mut Ui, card: Rect, p: Platform) {
                 }
             }
             let key = app.key_mut(p);
-            ui.add(egui::TextEdit::singleline(key).password(true).hint_text(l("Stream key", "Clave de transmisión")).desired_width(inner.width()));
+            if ui.add(egui::TextEdit::singleline(key).password(true).hint_text(l("Stream key", "Clave de transmisión")).desired_width(inner.width())).changed() {
+                let k = key.trim().to_string();
+                let _ = if k.is_empty() { crate::win::creds::delete(p.id()) } else { crate::win::creds::set(p.id(), &k) };
+            }
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Vertical 9:16").color(MUTED).size(13.0)).on_hover_text(l(
                     "Sends your vertical (9:16) layout, the one in the Studio's 9:16 preview",
@@ -1546,18 +1767,36 @@ fn platform_card(app: &mut App, ui: &mut Ui, card: Rect, p: Platform) {
                 }
             });
         });
-        ui.add_space(4.0);
-        let (r, _) = ui.allocate_exact_size(vec2(150.0, 40.0), Sense::hover());
-        let ready = app.status.ready;
-        if on {
-            if pill(ui, r, &format!("stop-{}", p.id()), l("■  Stop", "■  Detener"), RED, Color32::WHITE, semibold(14.0)).clicked() {
-                app.stop_stream(p);
-            }
-        } else if pill(ui, r, &format!("go-{}", p.id()), l("●  Go live", "●  Transmitir"), if ready { Color32::WHITE } else { Color32::from_gray(90) }, Color32::BLACK, semibold(14.0)).clicked() && ready {
-            app.start_stream(p);
+        // Part of the Studio's Go live, or not.
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            let ready = app.stream_ready(p);
+            let mut inc = ready && app.settings.go_live.as_ref().is_none_or(|v| v.contains(&p));
+            ui.label(egui::RichText::new(l("Go live with Studio", "Transmitir con Estudio")).color(if ready { TEXT } else { FAINT }).size(13.0)).on_hover_text(if ready {
+                l("On: the Studio's Go live button starts this one too", "Activado: el botón En vivo del Estudio también inicia esta")
+            } else {
+                l("Add the stream key (and server URL) first", "Primero agrega la clave (y la URL del servidor)")
+            });
+            ui.add_enabled_ui(ready, |ui| {
+                if toggle(ui, &mut inc).changed() {
+                    let mut list: Vec<Platform> = app.settings.go_live.clone().unwrap_or_else(|| Platform::ALL.into_iter().filter(|q| app.stream_ready(*q)).collect());
+                    list.retain(|q| *q != p);
+                    if inc {
+                        list.push(p);
+                    }
+                    app.settings.go_live = Some(list);
+                    let _ = app.settings.save();
+                }
+            });
+        });
+        ui.add_space(6.0);
+        // While it's live: its state, and End for just this one.
+        let (r, _) = ui.allocate_exact_size(vec2(if on { 110.0 } else { 0.0 }, 36.0), Sense::hover());
+        if on && pill(ui, r, &format!("stop-{}", p.id()), l("■  End", "■  Terminar"), RED, Color32::WHITE, semibold(13.0)).on_hover_text(l("End only this platform", "Terminar solo esta plataforma")).clicked() {
+            app.stop_stream(p);
         }
         let painter = ui.painter();
-        let sx = r.right() + 14.0;
+        let sx = if on { r.right() + 14.0 } else { r.left() };
         match &status {
             Some(s) => {
                 let col = if s.live { GREEN } else { ORANGE };
@@ -1662,7 +1901,7 @@ fn settings(app: &mut App, ui: &mut Ui, area: Rect) {
         area.min.y += 26.0;
     }
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("settings-page").auto_shrink([false; 2]).show(ui, |ui| {
             let width = area.width() - 14.0;
             let (h1, h2, h3, h4) = (276.0, 308.0, 150.0, 380.0);
             let one = width < 900.0;
@@ -2068,6 +2307,40 @@ fn save_dialog(app: &mut App, ctx: &egui::Context) {
         app.save_template(&d.name, &d.group);
     } else if cancel {
         app.save_dialog = None;
+    }
+}
+
+/// "End the stream?" before stopping every platform.
+fn end_live_dialog(app: &mut App, ctx: &egui::Context) {
+    if !app.end_live_ask {
+        return;
+    }
+    let names: Vec<&str> = app.status.streams.iter().filter_map(|s| s.platform.map(|p| p.label())).collect();
+    if names.is_empty() {
+        app.end_live_ask = false;
+        return;
+    }
+    let (mut end, mut cancel) = (false, false);
+    egui::Modal::new(Id::new("end-live")).show(ctx, |ui| {
+        ui.set_width(360.0);
+        ui.label(egui::RichText::new(l("End the stream?", "¿Terminar la transmisión?")).font(display(18.0)).color(TEXT));
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(t!("This ends it on {}.", "Se termina en {}.", names.join(", "))).color(MUTED).size(13.0));
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            if ui.add(egui::Button::new(egui::RichText::new(l("End stream", "Terminar")).strong().color(Color32::WHITE)).fill(RED).min_size(vec2(120.0, 30.0))).clicked() {
+                end = true;
+            }
+            if ui.add(egui::Button::new(l("Keep streaming", "Seguir en vivo")).min_size(vec2(120.0, 30.0))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                cancel = true;
+            }
+        });
+    });
+    if end {
+        app.end_live();
+    }
+    if end || cancel {
+        app.end_live_ask = false;
     }
 }
 

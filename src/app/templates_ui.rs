@@ -88,30 +88,55 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
     let quick = Rect::from_min_size(pos2(area.left(), bar.bottom() + 16.0), vec2(area.width(), 214.0));
     studios_card(app, ui, quick);
 
+    // The studio's templates, or all of them.
+    let studio = app.settings.studios.get(app.settings.studio).map(|s| s.name.clone()).unwrap_or_default();
+    let bar2 = Rect::from_min_size(pos2(area.left(), quick.bottom() + 12.0), vec2(area.width(), 34.0));
+    {
+        let p = ui.painter().clone();
+        let title = if app.templates_all { l("All templates", "Todas las plantillas").to_string() } else { t!("Templates in {}", "Plantillas en {}", studio) };
+        p.text(bar2.left_center() + vec2(4.0, 0.0), Align2::LEFT_CENTER, title, medium(15.0), TEXT);
+        let label = if app.templates_all { t!("Only {}", "Solo {}", studio) } else { l("See all", "Ver todo").to_string() };
+        let w = 30.0 + ui.painter().layout_no_wrap(label.clone(), semibold(12.5), TEXT).size().x;
+        let b = Rect::from_min_size(pos2(bar2.right() - w, bar2.top() + 2.0), vec2(w, 30.0));
+        if button(ui, b, ("see-all", 0), &label, !app.templates_all) {
+            app.templates_all = !app.templates_all;
+        }
+        if app.templates_all {
+            p.text(pos2(b.left() - 14.0, bar2.center().y), Align2::RIGHT_CENTER, t!("Add templates to {} with + Add on each card.", "Agrega plantillas a {} con + Agregar en cada tarjeta.", studio), body(12.0), FAINT);
+        }
+    }
     // Cards: 4 per row.
-    let grid = Rect::from_min_max(pos2(area.left(), quick.bottom() + 16.0), area.max);
+    let grid = Rect::from_min_max(pos2(area.left(), bar2.bottom() + 10.0), area.max);
     let cols = ((grid.width() + 16.0) / 300.0).floor().clamp(1.0, 6.0) as usize;
     let gap = 16.0;
     let cw = (grid.width() - gap * (cols - 1) as f32) / cols as f32;
     let ch = cw * 9.0 / 16.0 + 92.0;
-    let templates = app.templates.clone();
+    let show_all = app.templates_all;
+    let templates: Vec<(usize, crate::templates::Template)> =
+        app.templates.iter().cloned().enumerate().filter(|(_, t)| show_all || app.settings.pinned.contains(&crate::settings::Pin::Template(t.name.clone()))).collect();
     let current = app.settings.template.clone();
     let custom = app.settings.layout.is_some();
     let brand = app.settings.brand.clone();
     let hk = app.settings.hotkeys.clone();
     let mut regroup = false;
     ui.scope_builder(UiBuilder::new().max_rect(grid), |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-            let groups: Vec<&str> = templates.iter().map(|t| t.group.as_str()).collect();
+        egui::ScrollArea::vertical().id_salt("templates-grid").auto_shrink([false; 2]).show(ui, |ui| {
+            let groups: Vec<&str> = templates.iter().map(|(_, t)| t.group.as_str()).collect();
             let all_groups = super::groups::order(&groups);
             let layout = super::groups::grid(&groups, ui.cursor().min, cols, vec2(cw, ch), gap);
             let (all, _) = ui.allocate_exact_size(vec2(grid.width(), layout.height.max(ch)), Sense::hover());
             super::groups::draw_headers(ui.painter(), &layout);
             if templates.is_empty() {
-                ui.painter().text(all.center_top() + vec2(0.0, 60.0), Align2::CENTER_CENTER, l("No templates yet. Build your layout in the Studio and save it here.", "Aún no hay plantillas. Arma tu layout en el Estudio y guárdalo aquí."), body(13.0), MUTED);
+                let msg = if show_all || app.templates.is_empty() {
+                    l("No templates yet. Build your layout in the Studio and save it here.", "Aún no hay plantillas. Arma tu layout en el Estudio y guárdalo aquí.").to_string()
+                } else {
+                    t!("{} has no templates yet. Click See all and use + Add on the ones you want.", "{} aún no tiene plantillas. Dale a Ver todo y usa + Agregar en las que quieras.", studio)
+                };
+                ui.painter().text(all.center_top() + vec2(0.0, 60.0), Align2::CENTER_CENTER, msg, body(13.0), MUTED);
             }
-            for (i, t) in templates.iter().enumerate() {
-                let card = layout.cells[i];
+            for (k, (i, t)) in templates.iter().enumerate() {
+                let i = *i;
+                let card = layout.cells[k];
                 let p = ui.painter();
                 theme::card(p, card);
                 let active = custom && current.as_deref() == Some(t.name.as_str());
@@ -144,17 +169,19 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
                 let by = ty + 30.0;
                 let apply = Rect::from_min_size(pos2(card.left() + 14.0, by - 15.0), vec2(90.0, 30.0));
                 let delete = Rect::from_min_size(pos2(card.right() - 14.0 - 30.0, by - 15.0), vec2(30.0, 30.0));
-                let pin_r = Rect::from_min_size(pos2(delete.left() - 38.0, by - 15.0), vec2(30.0, 30.0));
+                // In the studio or not: a clear button.
                 let pin = crate::settings::Pin::Template(t.name.clone());
                 let pinned = app.settings.pinned.contains(&pin);
-                let studio = app.settings.studios.get(app.settings.studio).map(|s| s.name.clone()).unwrap_or_default();
+                let label = if pinned { format!("✓ {}", l("In studio", "En el Studio")) } else { format!("+ {}", l("Add", "Agregar")) };
+                let pw = 22.0 + ui.painter().layout_no_wrap(label.clone(), semibold(12.0), TEXT).size().x;
+                let pin_r = Rect::from_min_size(pos2(delete.left() - 8.0 - pw, by - 15.0), vec2(pw, 30.0));
                 let pr = ui.interact(pin_r, Id::new(("tpl-pin", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(if pinned {
-                    t!("Remove from the studio {}", "Quitar del Studio {}", studio)
+                    t!("In {}. Click to remove it from the studio.", "En {}. Clic para quitarla del Studio.", studio)
                 } else {
                     t!("Add to the studio {}", "Agregar al Studio {}", studio)
                 });
-                ui.painter().rect_filled(pin_r, CornerRadius::same(15), if pinned { Color32::from_rgba_premultiplied(70, 34, 0, 110) } else if pr.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 90) } else { Color32::from_rgba_premultiplied(40, 40, 44, 80) });
-                pin_icon(ui.painter(), pin_r.center(), if pinned { ORANGE } else { TEXT }, pinned);
+                ui.painter().rect_filled(pin_r, CornerRadius::same(15), if pinned { Color32::from_rgba_premultiplied(70, 34, 0, 130) } else if pr.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 110) } else { Color32::from_rgba_premultiplied(40, 40, 44, 90) });
+                ui.painter().text(pin_r.center(), Align2::CENTER_CENTER, label, semibold(12.0), if pinned { ORANGE } else { TEXT });
                 if pr.clicked() {
                     toggle_pin(app, pin);
                 }
@@ -340,6 +367,7 @@ fn studios_card(app: &mut App, ui: &mut Ui, rect: Rect) {
 
 fn button(ui: &mut Ui, r: Rect, id: (&str, usize), label: &str, primary: bool) -> bool {
     let resp = ui.interact(r, Id::new(id), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     let fill = if primary { Color32::WHITE } else if resp.hovered() { Color32::from_rgba_premultiplied(60, 60, 66, 90) } else { Color32::from_rgba_premultiplied(40, 40, 44, 80) };
     ui.painter().rect_filled(r, CornerRadius::same(15), fill);
     ui.painter().text(r.center(), Align2::CENTER_CENTER, label, semibold(12.5), if primary { Color32::BLACK } else { TEXT });

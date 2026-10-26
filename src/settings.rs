@@ -51,6 +51,10 @@ pub struct Settings {
     pub fold_audio: bool,
     pub fold_camera: bool,
     pub fold_chat: bool,
+    /// Custom layouts can't be moved on the previews while locked.
+    pub layout_locked: bool,
+    /// The same for the 9:16 layout.
+    pub layout_locked_v: bool,
     /// Quick-access scenes and templates under the preview, in order.
     pub pinned: Vec<Pin>,
     /// Studios: named sets of scenes. The active one's scenes are `pinned`
@@ -73,8 +77,10 @@ pub struct Settings {
     pub mirror: bool,
     /// A custom layout (replaces the scene while set).
     pub layout: Option<Layout>,
-    /// Your own 9:16 layout (None: made from the 16:9 one).
+    /// The current scene's 9:16 layout (None: made from the 16:9 one).
     pub layout_v: Option<Layout>,
+    /// Every scene's own 9:16 layout, by scene key (see `scene_key`).
+    pub verticals: Vec<(String, Layout)>,
     /// Show the 9:16 preview next to the 16:9 one.
     pub vertical_preview: bool,
     /// Show the 16:9 preview (hidden only while the 9:16 one shows).
@@ -114,6 +120,13 @@ pub struct Settings {
     pub media_seeded: bool,
     /// Which starter pack was added (2: the ElevenLabs one).
     pub media_pack: u32,
+    /// Media Board items pinned to the Studio, in their order (by path).
+    pub media_strip: Vec<String>,
+    /// Platforms the Studio's Go live button starts (None: every one with a
+    /// key; set once you pick).
+    pub go_live: Option<Vec<crate::live::Platform>>,
+    /// Going live also records, and ending the stream stops it.
+    pub record_live: bool,
     /// Guests: your LiveKit project (the secret is in Credential Manager).
     pub guests: crate::guests::Config,
     /// Interface language.
@@ -241,6 +254,11 @@ impl Default for Settings {
             fold_audio: false,
             fold_camera: false,
             fold_chat: false,
+            media_strip: vec![],
+            go_live: None,
+            record_live: true,
+            layout_locked: false,
+            layout_locked_v: false,
             pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),
             studios: vec![],
             studio: 0,
@@ -257,6 +275,7 @@ impl Default for Settings {
             mirror: pip.mirror,
             layout: None,
             layout_v: None,
+            verticals: vec![],
             vertical_preview: false,
             horizontal_preview: true,
             output: crate::engine::Output::Horizontal,
@@ -288,6 +307,11 @@ impl Default for Settings {
 
 impl Settings {
     pub fn path() -> PathBuf {
+        // CHISME_SETTINGS=file: another settings file (tests and screenshots
+        // never touch the real one).
+        if let Some(p) = std::env::var_os("CHISME_SETTINGS") {
+            return PathBuf::from(p);
+        }
         known(&FOLDERID_RoamingAppData).join("Chisme").join("settings.json")
     }
 
@@ -451,11 +475,47 @@ impl Settings {
         }
     }
 
-    /// The 9:16 layout in use: your own, or made from the 16:9 one.
+    /// The 9:16 layout in use: the scene's own, or made from the 16:9 one.
     pub fn vertical_layout(&self) -> Layout {
-        if let Some(v) = &self.layout_v {
-            return v.clone();
+        self.layout_v.clone().unwrap_or_else(|| self.auto_vertical())
+    }
+
+    /// Which scene is on, as a key for its own 9:16 layout.
+    pub fn scene_key(&self) -> String {
+        match (&self.template, &self.layout) {
+            (Some(n), _) => format!("t:{n}"),
+            (None, Some(_)) => "custom".into(),
+            _ => format!("s:{}", serde_json::to_string(&self.scene).unwrap_or_default()),
         }
+    }
+
+    fn store_vertical(&mut self, key: String, v: Layout) {
+        match self.verticals.iter_mut().find(|(k, _)| *k == key) {
+            Some(slot) => slot.1 = v,
+            None => self.verticals.push((key, v)),
+        }
+    }
+
+    /// Before the scene changes: keep its own 9:16 layout (if it has one).
+    pub fn keep_vertical(&mut self) {
+        if let Some(v) = self.layout_v.clone() {
+            let k = self.scene_key();
+            self.store_vertical(k, v);
+        }
+    }
+
+    /// After the scene changed: its own 9:16 layout, else the template's.
+    /// Fixed scenes (not editable) without one follow their 16:9 picture.
+    pub fn load_vertical(&mut self, template: Option<Layout>) {
+        let k = self.scene_key();
+        self.layout_v = self.verticals.iter().find(|(key, _)| *key == k).map(|(_, v)| v.clone()).or(template);
+        if let Some(v) = self.layout_v.clone() {
+            self.store_vertical(k, v);
+        }
+    }
+
+    /// The 9:16 layout made from the 16:9 one.
+    pub fn auto_vertical(&self) -> Layout {
         // Without a camera the fixed scenes show the screen only (like 16:9).
         let scene = if self.camera.is_some() { self.scene } else { Scene::Screen };
         let h = self.layout.clone().unwrap_or_else(|| Layout::from_scene(scene, &self.pip(), 1920.0, 1080.0, 16.0 / 9.0, 16.0 / 9.0));
@@ -548,5 +608,35 @@ mod studio_tests {
         s.remove_studio(5);
         assert_eq!(s.studios.len(), 5);
         assert!(s.studio < 5);
+    }
+}
+
+#[cfg(test)]
+mod vertical_tests {
+    use super::*;
+
+    #[test]
+    fn each_editable_scene_keeps_its_own_vertical() {
+        let mut s = Settings::default();
+        s.layout = Some(Layout::default());
+        s.template = Some("A".into());
+        let mut mine = Layout::default();
+        mine.background = [1, 2, 3];
+        s.layout_v = Some(mine.clone());
+        // Switch to template B, then back to A.
+        s.keep_vertical();
+        s.template = Some("B".into());
+        s.load_vertical(None);
+        assert_eq!(s.layout_v, None, "B has none of its own yet: made from its 16:9");
+        s.keep_vertical();
+        s.template = Some("A".into());
+        s.load_vertical(None);
+        assert_eq!(s.layout_v, Some(mine), "A gets its own back");
+        // A fixed scene follows its 16:9 picture.
+        s.keep_vertical();
+        s.template = None;
+        s.layout = None;
+        s.load_vertical(None);
+        assert_eq!(s.layout_v, None);
     }
 }

@@ -82,7 +82,7 @@ pub fn card(app: &mut App, ui: &mut Ui, card: egui::Rect) {
         p.text(list.center(), Align2::CENTER_CENTER, l("No messages yet.", "Aún no hay mensajes."), body(12.5), MUTED);
     }
     ui.scope_builder(UiBuilder::new().max_rect(list), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).stick_to_bottom(true).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("chat-list").max_height(list.height()).auto_shrink([false; 2]).stick_to_bottom(true).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             for m in &msgs {
                 let on = pinned.as_ref().is_some_and(|(a, t)| *a == m.author && *t == m.text);
@@ -120,7 +120,7 @@ pub fn card(app: &mut App, ui: &mut Ui, card: egui::Rect) {
 fn setup(app: &mut App, ui: &mut Ui, inner: Rect) {
     let mut connect = false;
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("chat-setup").max_height(inner.height()).auto_shrink([false; 2]).show(ui, |ui| {
             let w = ui.available_width();
             let field = |ui: &mut Ui, label: &str, v: &mut String, hint: &str| {
                 ui.label(egui::RichText::new(label).color(MUTED).size(12.5));

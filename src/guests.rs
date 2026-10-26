@@ -25,6 +25,33 @@ pub struct Config {
 }
 
 impl Config {
+    /// What's missing to make links, if anything.
+    pub fn missing(&self, secret: &str) -> Option<&'static str> {
+        if !(self.url.starts_with("wss://") || self.url.starts_with("ws://")) {
+            Some(crate::i18n::l("the Project URL", "la URL del proyecto"))
+        } else if self.api_key.is_empty() {
+            Some(crate::i18n::l("the API key", "la API key"))
+        } else if secret.is_empty() {
+            Some(crate::i18n::l("the API secret", "el API secret"))
+        } else {
+            None
+        }
+    }
+
+    /// A project URL as typed (https://…, or just the host) as wss://.
+    pub fn normal_url(u: &str) -> String {
+        let u = u.trim().trim_end_matches('/');
+        if u.is_empty() || u.starts_with("wss://") || u.starts_with("ws://") {
+            u.to_string()
+        } else if let Some(h) = u.strip_prefix("https://") {
+            format!("wss://{h}")
+        } else if let Some(h) = u.strip_prefix("http://") {
+            format!("ws://{h}")
+        } else {
+            format!("wss://{u}")
+        }
+    }
+
     pub fn ready(&self, secret: &str) -> bool {
         (self.url.starts_with("wss://") || self.url.starts_with("ws://")) && !self.api_key.is_empty() && !secret.is_empty()
     }
@@ -135,10 +162,16 @@ fn token(cfg: &Config, secret: &str, identity: &str, name: &str, hours: u64, hos
 }
 
 /// A link for one guest (valid 24 hours).
-pub fn invite_link(cfg: &Config, secret: &str) -> Result<String> {
+/// A link for one guest (`name`, optional, fills their name field).
+pub fn invite_link(cfg: &Config, secret: &str, name: &str) -> Result<String> {
     let id = format!("guest-{:08x}", rand_u32());
-    let t = token(cfg, secret, &id, "Guest", 24, false)?;
-    Ok(format!("{JOIN_PAGE}#url={}&token={}", urlencode(&cfg.url), t))
+    let shown = if name.trim().is_empty() { "Guest" } else { name.trim() };
+    let t = token(cfg, secret, &id, shown, 24, false)?;
+    let mut link = format!("{JOIN_PAGE}#url={}&token={}", urlencode(&cfg.url), t);
+    if !name.trim().is_empty() {
+        link.push_str(&format!("&name={}", urlencode(name.trim())));
+    }
+    Ok(link)
 }
 
 fn rand_u32() -> u32 {
@@ -440,7 +473,7 @@ mod tests {
         let secret = crate::win::creds::get("livekit").expect("secret");
         let cfg = Config { url: std::env::var("CHISME_LK_URL").unwrap(), api_key: std::env::var("CHISME_LK_KEY").unwrap(), room: new_room_name() };
         let host = start(cfg.clone(), secret.clone()).unwrap();
-        let link = invite_link(&cfg, &secret).unwrap();
+        let link = invite_link(&cfg, &secret, "").unwrap();
         let tok = link.split("token=").nth(1).unwrap().to_string();
         let rt = tokio::runtime::Runtime::new().unwrap();
         let _guest = rt.block_on(async {
@@ -503,10 +536,13 @@ mod tests {
     #[test]
     fn invite_links_carry_a_signed_token() {
         let cfg = Config { url: "wss://demo.livekit.cloud".into(), api_key: "APIdemo".into(), room: "chisme-abc".into() };
-        let link = invite_link(&cfg, "secret-secret-secret-secret-secret").unwrap();
+        let link = invite_link(&cfg, "secret-secret-secret-secret-secret", "").unwrap();
         assert!(link.starts_with(JOIN_PAGE));
         assert!(link.contains("url=wss%3A%2F%2Fdemo.livekit.cloud&token=ey"));
         assert!(cfg.ready("x"));
         assert!(!Config::default().ready("x"));
+        // A name fills the guest's name field.
+        let named = invite_link(&cfg, "secret-secret-secret-secret-secret", "Ana Paz").unwrap();
+        assert!(named.ends_with("&name=Ana%20Paz"));
     }
 }

@@ -57,6 +57,12 @@ pub struct Layer {
     pub style: u8,
     /// Guest layers: which seat on stage.
     pub guest: u8,
+    /// The part of the picture shown (x, y, w, h as fractions of it).
+    pub crop: [f64; 4],
+    /// 0 (invisible) to 1.
+    pub opacity: f64,
+    /// Degrees, clockwise.
+    pub rotation: f64,
 }
 
 impl Default for Layer {
@@ -77,6 +83,9 @@ impl Default for Layer {
             subtitle: String::new(),
             style: 1,
             guest: 0,
+            crop: [0.0, 0.0, 1.0, 1.0],
+            opacity: 1.0,
+            rotation: 0.0,
         }
     }
 }
@@ -117,6 +126,23 @@ impl Layer {
             mirror: self.mirror && self.source == Source::Camera,
             ..Default::default()
         }
+    }
+
+    /// Its crop, opacity and rotation for drawing.
+    pub fn fx(&self) -> crate::win::overlay::Fx {
+        crate::win::overlay::Fx { crop: self.crop_rect(), opacity: self.opacity, rotation: self.rotation }
+    }
+
+    /// The crop, kept inside the picture and at least 2% of it.
+    pub fn crop_rect(&self) -> [f64; 4] {
+        let w = self.crop[2].clamp(0.02, 1.0);
+        let h = self.crop[3].clamp(0.02, 1.0);
+        [self.crop[0].clamp(0.0, 1.0 - w), self.crop[1].clamp(0.0, 1.0 - h), w, h]
+    }
+
+    /// Cropped at all.
+    pub fn cropped(&self) -> bool {
+        self.crop_rect() != [0.0, 0.0, 1.0, 1.0]
     }
 
     /// Pixel rect on a `w`x`h` frame.
