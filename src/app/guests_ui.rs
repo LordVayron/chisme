@@ -201,7 +201,7 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
     let ch = art_h + 104.0;
     let mut send: Vec<Cmd> = vec![];
     ui.scope_builder(UiBuilder::new().max_rect(grid), |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("guests-grid").auto_shrink([false; 2]).show(ui, |ui| {
             let rows = guest_list.len().div_ceil(cols);
             let (all, _) = ui.allocate_exact_size(vec2(grid.width(), rows as f32 * (ch + gap)), egui::Sense::hover());
             for (i, g) in guest_list.iter().enumerate() {

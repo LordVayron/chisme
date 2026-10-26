@@ -40,6 +40,7 @@ and versions follow [Semantic Versioning](https://semver.org).
 - In a smaller window the Layers card keeps the room it needs (picture, shape, border…) and the page scrolls instead.
 
 ### Fixed
+- Scrolling the Layers card no longer jumps back to the top when the Media Board has pinned items (the two shared one scroll position).
 - The Layers, Camera and Chat cards scroll inside the card (with a visible scroll bar) when the window is small, instead of cutting off their settings.
 - Looping clips and sounds play again with no gap: the next pass is ready before the current one ends, so the picture never goes black between them.
 

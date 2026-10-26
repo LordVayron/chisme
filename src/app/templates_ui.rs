@@ -120,7 +120,7 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
     let hk = app.settings.hotkeys.clone();
     let mut regroup = false;
     ui.scope_builder(UiBuilder::new().max_rect(grid), |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("templates-grid").auto_shrink([false; 2]).show(ui, |ui| {
             let groups: Vec<&str> = templates.iter().map(|(_, t)| t.group.as_str()).collect();
             let all_groups = super::groups::order(&groups);
             let layout = super::groups::grid(&groups, ui.cursor().min, cols, vec2(cw, ch), gap);

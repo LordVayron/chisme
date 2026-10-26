@@ -421,7 +421,7 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
     p.rect_filled(inner, CornerRadius::same(14), Color32::from_rgba_premultiplied(0, 0, 0, 90));
     let mut changed = false;
     ui.scope_builder(egui::UiBuilder::new().max_rect(inner.shrink(12.0)), |ui| {
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("prompter-text").auto_shrink(false).show(ui, |ui| {
             let r = ui.add(
                 egui::TextEdit::multiline(&mut app.settings.prompter.script)
                     .font(medium(17.0))

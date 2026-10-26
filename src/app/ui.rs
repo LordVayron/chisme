@@ -304,7 +304,7 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
     let narrow = area.width() < 1100.0 && !(editing && area.width() >= 820.0);
     let media_h = 158.0;
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("studio-page").auto_shrink([false; 2]).show(ui, |ui| {
             let w = area.width() - 4.0;
             if narrow {
                 let pv_h = (w * 9.0 / 16.0 + 96.0).max(330.0);
@@ -1314,14 +1314,14 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
         }
         if app.cam_tab == 1 {
             ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
-                ScrollArea::vertical().max_height(inner.height()).auto_shrink([false; 2]).show(ui, |ui| cam_controls(app, ui));
+                ScrollArea::vertical().id_salt("camera-controls").max_height(inner.height()).auto_shrink([false; 2]).show(ui, |ui| cam_controls(app, ui));
             });
             return;
         }
     }
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
         ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
-        ScrollArea::vertical().max_height(inner.height()).scroll_source(egui::scroll_area::ScrollSource::ALL).auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("camera-card").max_height(inner.height()).scroll_source(egui::scroll_area::ScrollSource::ALL).auto_shrink([false; 2]).show(ui, |ui| {
         if app.settings.camera.is_none() || cam.is_none() {
             ui.add_space(6.0);
             let msg = if app.settings.camera.is_some() && app.status.ready { l("The camera didn't respond. Pick another:", "La cámara no respondió. Elige otra:") } else { l("Add your camera to the video:", "Agrega tu cámara al video:") };
@@ -1572,7 +1572,7 @@ fn recordings(app: &mut App, ui: &mut Ui, card: Rect, max_rows: usize, compact: 
     let recs: Vec<(std::path::PathBuf, String, u64, SystemTime)> =
         app.recordings.iter().take(if compact { max_rows } else { usize::MAX }).map(|r| (r.path.clone(), r.name.clone(), r.bytes, r.modified)).collect();
     ui.scope_builder(UiBuilder::new().max_rect(list), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("recordings-list").auto_shrink([false; 2]).show(ui, |ui| {
             for (i, (path, name, bytes, modified)) in recs.iter().enumerate() {
                 let (r, _) = ui.allocate_exact_size(vec2(list.width(), row_h), Sense::hover());
                 let rr = r.shrink2(vec2(0.0, 4.0));
@@ -1670,7 +1670,7 @@ fn live(app: &mut App, ui: &mut Ui, area: Rect) {
     let gap = 16.0;
     let rows = (Platform::ALL.len() + 1).div_ceil(cols);
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("live-page").auto_shrink([false; 2]).show(ui, |ui| {
             let width = area.width() - 4.0;
             let w = (width - gap * (cols - 1) as f32) / cols as f32;
             let h = ((area.height() - gap) / 2.0).max(300.0);
@@ -1852,7 +1852,7 @@ fn settings(app: &mut App, ui: &mut Ui, area: Rect) {
         area.min.y += 26.0;
     }
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        ScrollArea::vertical().id_salt("settings-page").auto_shrink([false; 2]).show(ui, |ui| {
             let width = area.width() - 14.0;
             let (h1, h2, h3, h4) = (276.0, 308.0, 150.0, 380.0);
             let one = width < 900.0;

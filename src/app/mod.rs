@@ -833,7 +833,7 @@ impl eframe::App for App {
         let t = self.started.elapsed().as_secs_f32();
         if t > after && t < after + 1.5 {
             raw.events.push(egui::Event::PointerMoved(egui::pos2(x, y)));
-            raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -40.0), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown, modifiers: egui::Modifiers::NONE });
+            raw.events.push(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -40.0), phase: egui::TouchPhase::Move, source: if n.get(3) == Some(&1.0) { egui::MouseWheelSource::Trackpad } else { egui::MouseWheelSource::Wheel }, modifiers: egui::Modifiers::NONE });
         }
     }
 

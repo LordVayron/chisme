@@ -179,7 +179,7 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
     let mut move_to: Option<(usize, String)> = None;
     let mut save = false;
     ui.scope_builder(UiBuilder::new().max_rect(grid), |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("media-page").auto_shrink([false; 2]).show(ui, |ui| {
             let groups: Vec<&str> = items.iter().map(|it| it.group.as_str()).collect();
             let all_groups = super::groups::order(&groups);
             let origin = ui.cursor().min;
@@ -399,7 +399,7 @@ pub fn strip(app: &mut App, ui: &mut Ui, card: Rect) {
     let mut unpin = None;
     let mut moved: Option<(usize, usize)> = None;
     ui.scope_builder(UiBuilder::new().max_rect(row), |ui| {
-        egui::ScrollArea::horizontal().auto_shrink([false; 2]).show(ui, |ui| {
+        egui::ScrollArea::horizontal().id_salt("media-strip").auto_shrink([false; 2]).show(ui, |ui| {
             let (all, _) = ui.allocate_exact_size(vec2(total, th), Sense::hover());
             let mut x = all.left();
             let mut lefts = vec![];
