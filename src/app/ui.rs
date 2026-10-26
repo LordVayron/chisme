@@ -307,7 +307,8 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 let half = ((w - 16.0) / 2.0).floor();
                 let stacked = w < 640.0;
                 let cards_h = if stacked { audio_h + 16.0 + side_h } else { audio_h.max(side_h) };
-                let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + cards_h + media_h + 32.0), Sense::hover());
+                let chat_h = if app.settings.fold_chat { FOLDED_H } else { 300.0 };
+                let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + cards_h + chat_h + media_h + 48.0), Sense::hover());
                 let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
                 let y2 = preview_card.bottom() + 16.0;
                 let (audio_card, cam_card) = if stacked {
@@ -315,10 +316,12 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 } else {
                     (Rect::from_min_size(pos2(all.left(), y2), vec2(half, audio_h)), Rect::from_min_size(pos2(all.left() + half + 16.0, y2), vec2(half, side_h)))
                 };
-                let media = Rect::from_min_size(pos2(all.left(), y2 + cards_h + 16.0), vec2(w, media_h));
+                let chat_card = Rect::from_min_size(pos2(all.left(), y2 + cards_h + 16.0), vec2(w, chat_h));
+                let media = Rect::from_min_size(pos2(all.left(), chat_card.bottom() + 16.0), vec2(w, media_h));
                 preview(app, ui, preview_card);
                 audio(app, ui, audio_card);
                 side_card(app, ui, cam_card);
+                super::chat_ui::card(app, ui, chat_card);
                 super::media_ui::strip(app, ui, media);
             } else {
                 let total = area.height().max(660.0);
@@ -332,12 +335,18 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), top.max);
                 let audio_h = if audio_fold { FOLDED_H } else { (right.height() * 0.36).clamp(200.0, 260.0).floor() };
                 let audio_card = Rect::from_min_size(right.min, vec2(right.width(), audio_h));
+                // Camera takes what Chat leaves (or the other way round when
+                // Camera is folded).
                 let cam_top = audio_card.bottom() + 16.0;
-                let cam_card = if cam_fold { Rect::from_min_size(pos2(right.left(), cam_top), vec2(right.width(), FOLDED_H)) } else { Rect::from_min_max(pos2(right.left(), cam_top), right.max) };
+                let chat_fold = app.settings.fold_chat;
+                let chat_h = if chat_fold { FOLDED_H } else if cam_fold { (right.bottom() - cam_top - FOLDED_H - 16.0).max(FOLDED_H) } else { ((right.bottom() - cam_top) * 0.45).clamp(160.0, 320.0).floor() };
+                let chat_card = Rect::from_min_max(pos2(right.left(), right.bottom() - chat_h), right.max);
+                let cam_card = if cam_fold { Rect::from_min_size(pos2(right.left(), cam_top), vec2(right.width(), FOLDED_H)) } else { Rect::from_min_max(pos2(right.left(), cam_top), pos2(right.right(), chat_card.top() - 16.0)) };
                 let media = Rect::from_min_max(pos2(all.left(), all.bottom() - media_h), all.max);
                 preview(app, ui, preview_card);
                 audio(app, ui, audio_card);
                 side_card(app, ui, cam_card);
+                super::chat_ui::card(app, ui, chat_card);
                 super::media_ui::strip(app, ui, media);
             }
         });
@@ -1094,6 +1103,7 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
         }
     }
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
+        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
         if app.settings.camera.is_none() || cam.is_none() {
             ui.add_space(6.0);
             let msg = if app.settings.camera.is_some() && app.status.ready { l("The camera didn't respond. Pick another:", "La cámara no respondió. Elige otra:") } else { l("Add your camera to the video:", "Agrega tu cámara al video:") };
@@ -1198,6 +1208,7 @@ fn camera(app: &mut App, ui: &mut Ui, card: Rect) {
         if vbg_row(ui, &mut app.settings.vbg, 190.0) {
             app.settings_changed();
         }
+        });
     });
 }
 

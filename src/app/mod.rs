@@ -11,6 +11,7 @@ mod media_ui;
 mod prompter;
 mod templates_ui;
 mod theme;
+mod chat_ui;
 mod ui;
 
 use std::collections::VecDeque;
@@ -153,6 +154,10 @@ pub struct App {
     pub sel_layer: Option<usize>,
     /// The selection and drag are on the 9:16 layout.
     pub edit_v: bool,
+    /// Live chat connections, the setup view, and a typed YouTube key.
+    pub chat: Option<crate::chat::Chat>,
+    pub chat_setup: bool,
+    pub chat_key: String,
     pub drag: Option<editor::Drag>,
     pub guides: (Option<f64>, Option<f64>),
     pub save_dialog: Option<SaveDialog>,
@@ -192,6 +197,7 @@ impl App {
         let names: Vec<String> = crate::templates::list().iter().map(|t| t.name.clone()).collect();
         settings.ensure_studios(&names);
         let _ = settings.save();
+        let chat = settings.chat.any().then(|| crate::chat::Chat::start(settings.chat.clone(), crate::win::creds::get(chat_ui::YT_KEY)));
         // The starter sound pad, and the new pack in place of the old one.
         if settings.media_pack < 2 {
             settings.media.retain(|m| !crate::media::is_old_starter(m));
@@ -247,6 +253,9 @@ impl App {
             last_replay: None,
             sel_layer: None,
             edit_v: false,
+            chat,
+            chat_setup: false,
+            chat_key: String::new(),
             drag: None,
             guides: (None, None),
             save_dialog: None,

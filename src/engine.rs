@@ -146,6 +146,8 @@ pub struct LiveState {
     /// How scenes change, and a counter the app bumps on each change.
     pub transition: crate::win::transition::Transition,
     pub switch: u64,
+    /// A chat comment shown on screen: (author, text).
+    pub chat_pin: Option<(String, String)>,
 }
 
 pub enum Cmd {
@@ -1241,6 +1243,9 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                     }
                     if !cfg.test_pattern {
                         draw_media(&gpu, &mut pipe, &players, media_image.as_deref(), out)?;
+                        if let Some(pin) = &live.chat_pin {
+                            draw_chat(&gpu, &mut pipe, pin, &live.brand, out)?;
+                        }
                     }
                     pipe.blend.apply(&pipe.canvas, t);
                     let main_v = rec.as_ref().is_some_and(|r| r.main_vertical);
@@ -1261,6 +1266,9 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                         } else {
                             render_layout(&gpu, pv, &cap, info.content, cam.as_ref().filter(|_| cam_ready), &live.vertical, &live.brand, out_v)?;
                             draw_media(&gpu, pv, &players, media_image.as_deref(), out_v)?;
+                            if let Some(pin) = &live.chat_pin {
+                                draw_chat(&gpu, pv, pin, &live.brand, out_v)?;
+                            }
                         }
                         pv.blend.apply(&pv.canvas, t);
                         if rec_slot.is_some() && rec_v {
@@ -1390,6 +1398,25 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
         c.stop();
     }
     result.and(finished)
+}
+
+/// A chat comment as a branded lower third near the bottom left (wider on
+/// a vertical picture).
+fn draw_chat(gpu: &Gpu, pipe: &mut Pipeline, pin: &(String, String), brand: &Brand, out: (u32, u32)) -> Result<()> {
+    let (ow, oh) = (out.0 as f64, out.1 as f64);
+    let vertical = oh > ow;
+    let rect = if vertical { [ow * 0.05, oh * 0.74, ow * 0.9, oh * 0.075] } else { [ow * 0.03, oh * 0.78, ow * 0.62, oh * 0.12] };
+    let text: String = if pin.1.chars().count() > 90 { pin.1.chars().take(88).chain("…".chars()).collect() } else { pin.1.clone() };
+    let (w, h) = (rect[2] as usize, rect[3] as usize);
+    let key = format!("chat:{}|{}|{w}x{h}|{:?}", pin.0, text, brand);
+    let Some((size, srv)) = picture(gpu, pipe, &key, || {
+        let c = crate::brand::lower_third(&pin.0, &text, 1, brand, w, h);
+        Some((c.w as u32, c.h as u32, c.px))
+    }) else {
+        return Ok(());
+    };
+    let plain = PipSpec { shape: Shape::Rect, roundness: 0.0, border: 0.0, shadow: false, mirror: false, ..Default::default() };
+    pipe.overlay.draw_texture_alpha(&srv, size, [1.0, 1.0], Some(rect), &plain, true)
 }
 
 /// Draw a custom layout: the background, then each visible layer bottom to

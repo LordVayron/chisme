@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Live chat: a Chat card on the Studio page shows Twitch, Kick and YouTube messages in one list (set the channels with its gear; YouTube uses your own free API key, kept in Windows Credential Manager). Click a message to show it on screen as a branded lower third, in the recording and the streams; click again to remove it.
+
 ## [0.5.0] - 2026-10-25
 
 ### Added
