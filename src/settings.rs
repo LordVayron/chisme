@@ -125,6 +125,8 @@ pub struct Settings {
     /// Platforms the Studio's Go live button starts (None: every one with a
     /// key; set once you pick).
     pub go_live: Option<Vec<crate::live::Platform>>,
+    /// Going live also records, and ending the stream stops it.
+    pub record_live: bool,
     /// Guests: your LiveKit project (the secret is in Credential Manager).
     pub guests: crate::guests::Config,
     /// Interface language.
@@ -254,6 +256,7 @@ impl Default for Settings {
             fold_chat: false,
             media_strip: vec![],
             go_live: None,
+            record_live: true,
             layout_locked: false,
             layout_locked_v: false,
             pinned: Scene::ALL.iter().map(|s| Pin::Scene(*s)).collect(),

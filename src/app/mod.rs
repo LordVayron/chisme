@@ -193,6 +193,11 @@ pub struct App {
     pub guest_setup: bool,
     /// Asking before ending every stream.
     pub end_live_ask: bool,
+    /// The recording was started by Go live (so ending the stream stops it),
+    /// and a platform has been on since.
+    pub rec_by_live: bool,
+    pub live_seen: bool,
+    pub live_rec_at: std::time::Instant,
     /// When the app started (tests).
     pub started: std::time::Instant,
     pub guest_thumbs: std::collections::HashMap<String, (u64, egui::TextureHandle)>,
@@ -299,6 +304,9 @@ impl App {
             guest_name: String::new(),
             guest_setup: false,
             end_live_ask: false,
+            rec_by_live: false,
+            live_seen: false,
+            live_rec_at: std::time::Instant::now(),
             started: std::time::Instant::now(),
             guest_thumbs: Default::default(),
         }
@@ -476,7 +484,16 @@ impl App {
             }
         }
         let names: Vec<&str> = targets.iter().map(|p| p.label()).collect();
-        self.toast(t!("Going live on {}", "Transmitiendo en {}", names.join(", ")));
+        // Record while live: the whole stream on this PC too.
+        if self.settings.record_live && !self.status.recording {
+            self.toggle_record();
+            self.rec_by_live = true;
+            self.live_seen = false;
+            self.live_rec_at = std::time::Instant::now();
+            self.toast(t!("Going live on {} and recording", "Transmitiendo en {} y grabando", names.join(", ")));
+        } else {
+            self.toast(t!("Going live on {}", "Transmitiendo en {}", names.join(", ")));
+        }
     }
 
     /// End every platform stream (the replay buffer keeps going).
@@ -487,7 +504,17 @@ impl App {
                 e.send(Cmd::StopStream(id));
             }
         }
+        self.stop_live_recording();
         self.toast(l("Stream ended", "Transmisión terminada"));
+    }
+
+    /// Stop the recording Go live started (if it's still going).
+    fn stop_live_recording(&mut self) {
+        if self.rec_by_live && self.status.recording {
+            self.toggle_record();
+        }
+        self.rec_by_live = false;
+        self.live_seen = false;
     }
 
     pub fn stop_stream(&mut self, p: Platform) {
@@ -688,6 +715,20 @@ impl App {
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
+        // A Go live recording ends with the last stream (ended one by one,
+        // or dropped), and lets go if you stopped it yourself.
+        if self.rec_by_live {
+            let streaming = self.status.streams.iter().any(|s| s.platform.is_some());
+            if streaming {
+                self.live_seen = true;
+            } else if self.live_seen {
+                self.stop_live_recording();
+            }
+            // (Give the recording a few seconds to start first.)
+            if !self.status.recording && self.live_seen && self.live_rec_at.elapsed().as_secs() > 4 {
+                self.rec_by_live = false;
+            }
+        }
         // Engine status and preview.
         if let Some(e) = &self.engine {
             self.status = e.status();

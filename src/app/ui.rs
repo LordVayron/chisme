@@ -637,6 +637,11 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
                         }
                     }
                     ui.separator();
+                    let mut rec = app.settings.record_live;
+                    if ui.checkbox(&mut rec, l("Record while live", "Grabar mientras transmites")).changed() {
+                        app.settings.record_live = rec;
+                        changed = true;
+                    }
                     if ui.button(l("Stream keys…", "Claves…")).clicked() {
                         open_live = true;
                     }
@@ -1678,6 +1683,15 @@ fn live(app: &mut App, ui: &mut Ui, area: Rect) {
         if pill(ui, b, "live-to-studio", l("Go to Studio", "Ir al Estudio"), Color32::WHITE, Color32::BLACK, semibold(13.5)).clicked() {
             app.page = Page::Studio;
         }
+        let tr = Rect::from_min_max(pos2(b.left() - 16.0 - 200.0, bar.top()), pos2(b.left() - 16.0, bar.bottom()));
+        ui.scope_builder(UiBuilder::new().max_rect(tr).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+            let mut on = app.settings.record_live;
+            if toggle(ui, &mut on).on_hover_text(l("Go live also records the whole stream to your Videos folder; ending the stream stops it", "En vivo también graba toda la transmisión en tu carpeta Videos; al terminar se detiene")).changed() {
+                app.settings.record_live = on;
+                let _ = app.settings.save();
+            }
+            ui.label(egui::RichText::new(l("Record while live", "Grabar mientras transmites")).color(TEXT).size(13.0));
+        });
     }
     let area = Rect::from_min_max(pos2(area.left(), bar.bottom() + 16.0), area.max);
     let cols = if area.width() < 760.0 { 1 } else if area.width() < 1180.0 { 2 } else { 3 };
