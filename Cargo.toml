@@ -1,6 +1,6 @@
 [package]
 name = "chisme"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 description = "Screen recorder, live-streaming studio and clip maker for Windows"
 authors = ["Jorge (LordVayron)", "079 AI Labs"]
