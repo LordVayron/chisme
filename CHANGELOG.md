@@ -13,7 +13,20 @@ and versions follow [Semantic Versioning](https://semver.org).
 - Studio page Media Board: it shows only what you pin (the pin on each Media Board tile), in your order. Its Edit button lets you drag them into place, take them off and pick a color for each sound. Sounds are colored pads, lit while they play.
 - Templates page: "+ Add" on each template card puts it in the studio you have selected ("✓ In studio" takes it out).
 
+- Layer editor, rebuilt:
+  - Resize from the sides as well as the corners.
+  - Turn a layer with the round handle above it (Shift: steps of 15°).
+  - Crop: double-click a layer or press Crop, then drag its edges to cut the picture.
+  - Opacity.
+  - Quick places: full frame, halves, center and corners.
+  - Right-click a layer on the preview for front / back, duplicate, crop, fill / fit, straighten, place, hide and delete.
+  - Arrow keys nudge (Shift: 10 px), Delete removes, Ctrl+D duplicates, Ctrl+Z / Ctrl+Y undo and redo.
+  - Hovering a layer outlines it.
+  - The 9:16 layout's layers have the same settings (pick 16:9 or 9:16 at the top of the Layers card, or click that preview).
+
 ### Changed
+- While you edit a layout, the Layers card sits beside the preview and uses the full height (Live audio goes under it), so the preview and all the settings are visible together.
+- The Chat card shows on the Studio page only while you're live.
 - Every scene keeps its own 9:16 layout. Changing the 9:16 layout of one scene no longer changes another, and the 9:16 layout no longer changes when you edit the 16:9 one.
 - Choosing a studio on the Templates page shows only its templates; "See all" shows every one.
 - A "View: 16:9 | 9:16 | Both" switch under the preview replaces the small 16:9 and 9:16 buttons on the pictures.

@@ -167,6 +167,12 @@ pub struct App {
     pub strip_drag: Option<usize>,
     pub chat_key: String,
     pub drag: Option<editor::Drag>,
+    /// Crop mode: the selected layer's handles cut its picture.
+    pub crop_mode: bool,
+    /// Layout undo / redo, and the state last kept.
+    pub undo: Vec<editor::Snapshot>,
+    pub redo: Vec<editor::Snapshot>,
+    pub undo_base: Option<editor::Snapshot>,
     pub guides: (Option<f64>, Option<f64>),
     pub save_dialog: Option<SaveDialog>,
     /// Recordings page: the ones ticked, and a delete waiting for "Yes".
@@ -269,6 +275,10 @@ impl App {
             strip_drag: None,
             chat_key: String::new(),
             drag: None,
+            crop_mode: false,
+            undo: vec![],
+            redo: vec![],
+            undo_base: None,
             guides: (None, None),
             save_dialog: None,
             selected: Default::default(),

@@ -293,10 +293,15 @@ fn header(app: &mut App, ui: &mut Ui, content: Rect) -> Rect {
 /// editor while building a custom scene) and the Media Board. Wide windows
 /// get two columns; narrow ones stack everything and scroll.
 fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
-    let narrow = area.width() < 1100.0;
-    let media_h = 158.0;
     let audio_fold = app.settings.fold_audio;
     let cam_fold = app.settings.fold_camera;
+    // Chat only while you're live.
+    let live = app.status.streams.iter().any(|s| s.live);
+    // Editing a layout keeps the Layers card beside the preview whenever
+    // there's room, so you see both.
+    let editing = !cam_fold && app.settings.layout.is_some() && app.settings.template.is_none();
+    let narrow = area.width() < 1100.0 && !(editing && area.width() >= 820.0);
+    let media_h = 158.0;
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             let w = area.width() - 4.0;
@@ -307,7 +312,7 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 let half = ((w - 16.0) / 2.0).floor();
                 let stacked = w < 640.0;
                 let cards_h = if stacked { audio_h + 16.0 + side_h } else { audio_h.max(side_h) };
-                let chat_h = if app.settings.fold_chat { FOLDED_H } else { 300.0 };
+                let chat_h = if !live { -16.0 } else if app.settings.fold_chat { FOLDED_H } else { 300.0 };
                 let (all, _) = ui.allocate_exact_size(vec2(w, pv_h + cards_h + chat_h + media_h + 48.0), Sense::hover());
                 let preview_card = Rect::from_min_size(all.min, vec2(w, pv_h));
                 let y2 = preview_card.bottom() + 16.0;
@@ -321,7 +326,9 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 preview(app, ui, preview_card);
                 audio(app, ui, audio_card);
                 side_card(app, ui, cam_card);
-                super::chat_ui::card(app, ui, chat_card);
+                if live {
+                    super::chat_ui::card(app, ui, chat_card);
+                }
                 super::media_ui::strip(app, ui, media);
             } else {
                 let base = area.height().max(660.0);
@@ -329,17 +336,18 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 // The layer editor needs room for its settings: when the
                 // window is short, the right column grows and the page
                 // scrolls instead of squeezing it.
-                let layers = !cam_fold && app.settings.layout.is_some() && app.settings.template.is_none();
+                let layers = editing;
                 let audio_h0 = if audio_fold { FOLDED_H } else { (top_h * 0.36).clamp(200.0, 260.0).floor() };
-                let chat_min = if app.settings.fold_chat { FOLDED_H } else { 180.0 };
-                let right_h = if layers { top_h.max(audio_h0 + 16.0 + LAYERS_MIN + 16.0 + chat_min) } else { top_h };
+                let chat_edit = if !live { -16.0 } else if app.settings.fold_chat { FOLDED_H } else { 300.0 };
+                let right_h = if layers { top_h + 16.0 + audio_h0 + 16.0 + chat_edit } else { top_h };
                 let total = right_h + media_h + 16.0;
                 let (all, _) = ui.allocate_exact_size(vec2(w, total), Sense::hover());
                 let top = Rect::from_min_size(all.min, vec2(w, top_h));
                 // The 9:16 preview, when on, widens the preview card by its own
                 // column; the 16:9 picture keeps its size.
                 let vcol = if app.settings.vertical_preview && app.settings.horizontal_preview { ((top.height() - 24.0 - 64.0 - 30.0) * 9.0 / 16.0).floor() + 16.0 } else { 0.0 };
-                let left_w = ((w * 0.64).floor() + vcol).min(w - 16.0 - 380.0);
+                let side_min = if narrow_edit(w) { 340.0 } else { 380.0 };
+                let left_w = ((w * 0.64).floor() + vcol).min(w - 16.0 - side_min);
                 let preview_card = Rect::from_min_size(top.min, vec2(left_w, top.height()));
                 let right = Rect::from_min_max(pos2(preview_card.right() + 16.0, top.top()), pos2(top.right(), top.top() + right_h));
                 let audio_h = audio_h0;
@@ -348,18 +356,34 @@ fn studio(app: &mut App, ui: &mut Ui, area: Rect) {
                 // Camera is folded).
                 let cam_top = audio_card.bottom() + 16.0;
                 let chat_fold = app.settings.fold_chat;
-                let chat_h = if chat_fold { FOLDED_H } else if layers { (right.bottom() - cam_top - 16.0 - LAYERS_MIN).clamp(chat_min, 320.0).floor() } else if cam_fold { (right.bottom() - cam_top - FOLDED_H - 16.0).max(FOLDED_H) } else { ((right.bottom() - cam_top) * 0.45).clamp(160.0, 320.0).floor() };
+                let chat_h = if !live { 0.0 } else if chat_fold { FOLDED_H } else if layers { (right.bottom() - cam_top - 16.0 - LAYERS_MIN).clamp(FOLDED_H, 320.0).floor() } else if cam_fold { (right.bottom() - cam_top - FOLDED_H - 16.0).max(FOLDED_H) } else { ((right.bottom() - cam_top) * 0.45).clamp(160.0, 320.0).floor() };
                 let chat_card = Rect::from_min_max(pos2(right.left(), right.bottom() - chat_h), right.max);
-                let cam_card = if cam_fold { Rect::from_min_size(pos2(right.left(), cam_top), vec2(right.width(), FOLDED_H)) } else { Rect::from_min_max(pos2(right.left(), cam_top), pos2(right.right(), chat_card.top() - 16.0)) };
+                let cam_bottom = if live { chat_card.top() - 16.0 } else { right.bottom() };
+                let cam_card = if cam_fold { Rect::from_min_size(pos2(right.left(), cam_top), vec2(right.width(), FOLDED_H)) } else { Rect::from_min_max(pos2(right.left(), cam_top), pos2(right.right(), cam_bottom)) };
                 let media = Rect::from_min_max(pos2(all.left(), all.bottom() - media_h), all.max);
+                let (audio_card, cam_card, chat_card) = if layers {
+                    let lc = Rect::from_min_size(right.min, vec2(right.width(), top_h));
+                    let ac = Rect::from_min_size(pos2(right.left(), lc.bottom() + 16.0), vec2(right.width(), audio_h0));
+                    let cc = Rect::from_min_size(pos2(right.left(), ac.bottom() + 16.0), vec2(right.width(), chat_edit.max(0.0)));
+                    (ac, lc, cc)
+                } else {
+                    (audio_card, cam_card, chat_card)
+                };
                 preview(app, ui, preview_card);
                 audio(app, ui, audio_card);
                 side_card(app, ui, cam_card);
-                super::chat_ui::card(app, ui, chat_card);
+                if live {
+                    super::chat_ui::card(app, ui, chat_card);
+                }
                 super::media_ui::strip(app, ui, media);
             }
         });
     });
+}
+
+/// A narrow window while editing: a slimmer Layers column.
+fn narrow_edit(w: f32) -> bool {
+    w < 1100.0
 }
 
 /// The layer editor's smallest height (its settings fit without scrolling).
@@ -566,7 +590,8 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
         let scy = if stacked { view.bottom() + controls_h + scenes_row / 2.0 } else { cy };
         let custom_box = Rect::from_min_size(pos2(inner.right() - 6.0 - 92.0, scy - 25.0), vec2(92.0, 50.0));
         // What Record writes, next to the teleprompter.
-        let out_w = 150.0;
+        // Narrower when the card is (it never leaves the card).
+        let out_w = (inner.right() - 6.0 - (pc.x + 40.0)).clamp(96.0, 150.0);
         let out_r = Rect::from_min_size(pos2(pc.x + 24.0 + 16.0, cy - 15.0), vec2(out_w, 30.0));
         {
             use crate::engine::Output;
@@ -747,7 +772,15 @@ fn preview(app: &mut App, ui: &mut Ui, card: Rect) {
         (format!("{}", s.drops), l("dropped", "perdidos"), if s.drops > 0 { RED } else { RAINBOW[4] }),
     ];
     let mut x = strip.left() + 10.0;
+    // The stats give way to the controls on the right (view, locks, timer)
+    // when the card is narrow.
+    let n_locks = if app.settings.layout.is_some() && app.settings.template.is_none() { if app.settings.vertical_preview && app.settings.horizontal_preview { 2.0 } else { 1.0 } } else { 0.0 };
+    let room = strip.right() - 96.0 - 174.0 - 50.0 - n_locks * 34.0;
     for (v, label, c) in items {
+        let need = p.layout_no_wrap(v.clone(), semibold(12.5), TEXT).size().x + p.layout_no_wrap(label.to_string(), body(11.5), FAINT).size().x + 22.0;
+        if x + need > room {
+            break;
+        }
         p.circle_filled(pos2(x + 3.0, strip.center().y), 3.0, c);
         let r = text(&p, pos2(x + 12.0, strip.center().y), Align2::LEFT_CENTER, v, semibold(12.5), TEXT);
         let r2 = text(&p, pos2(r.right() + 5.0, strip.center().y), Align2::LEFT_CENTER, label, body(11.5), FAINT);

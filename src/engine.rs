@@ -213,6 +213,8 @@ pub struct Status {
     pub warnings: Vec<String>,
     pub label: String,
     pub out_size: (u32, u32),
+    /// The captured screen or window's size.
+    pub content: (u32, u32),
     pub fps: u32,
     pub bitrate: f64,
     pub cam: Option<(String, (u32, u32), f64)>,
@@ -1439,6 +1441,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                 // One entry per item: the pass that's playing.
                 st.media = players.iter().filter(|p| !p.hold || p.start.is_some_and(|s| t >= s)).map(|p| (p.key.clone(), p.progress(t))).collect();
                 st.media_image = media_image.clone();
+                st.content = cap.info().content;
                 st.vbg_ms = vbg_worker.as_ref().map(|w| w.mask.lock().unwrap().ms);
                 st.cam_controls = cam.as_ref().map(|c| c.controls.lock().unwrap().list.clone()).unwrap_or_default();
                 if let Some(r) = &rec {
@@ -1519,12 +1522,25 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
     for layer in layout.layers.iter().filter(|l| l.visible) {
         let rect = layer.px(ow, oh);
         let style = layer.style();
+        let fx = layer.fx();
+        // The shown part's shape: the picture's, cut by the crop.
+        let cut = |size: (u32, u32)| size.0 as f64 * fx.crop[2] / (size.1.max(1) as f64 * fx.crop[3]).max(1e-6);
         match layer.source {
             LayerSource::Screen => {
-                let aspect = content.0 as f64 / content.1.max(1) as f64;
+                let aspect = cut(content);
                 let r = if layer.fill { rect } else { fit_in(rect, aspect) };
                 let size = ((r[2] as u32).max(2) & !1, (r[3] as u32).max(2) & !1);
-                let crop = if layer.fill { crop_to(content, size.0 as f64 / size.1 as f64) } else { (0, 0, content.0, content.1) };
+                // The crop happens in the scaler (sharp text), so the draw
+                // below shows the whole of what it made.
+                let [cx, cy, cw, ch] = fx.crop;
+                let sub = (((cx * content.0 as f64) as u32), ((cy * content.1 as f64) as u32), ((cw * content.0 as f64) as u32).max(2), ((ch * content.1 as f64) as u32).max(2));
+                let crop = if layer.fill {
+                    let c = crop_to((sub.2, sub.3), size.0 as f64 / size.1 as f64);
+                    (sub.0 + c.0, sub.1 + c.1, c.2, c.3)
+                } else {
+                    sub
+                };
+                let fx = crate::win::overlay::Fx { crop: [0.0, 0.0, 1.0, 1.0], ..fx };
                 let i = match pipe.layer_tex.iter().position(|t| t.0 == size) {
                     Some(i) => i,
                     None => {
@@ -1539,14 +1555,14 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 };
                 let (tex, srv) = (pipe.layer_tex[i].1.clone(), pipe.layer_tex[i].2.clone());
                 pipe.scale.blit_sized(&cap.latest, crop, &tex, size)?;
-                pipe.overlay.draw_texture(&srv, size, [1.0, 1.0], Some([r[0], r[1], size.0 as f64, size.1 as f64]), &style)?;
+                pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some([r[0], r[1], size.0 as f64, size.1 as f64]), &style, false, &fx)?;
             }
             LayerSource::Camera => {
                 let (Some(c), Some(srv)) = (cam, pipe.overlay.cam()) else {
                     continue;
                 };
-                let r = if layer.fill { rect } else { fit_in(rect, c.size.0 as f64 / c.size.1.max(1) as f64) };
-                pipe.overlay.draw_texture(&srv, c.size, [1.0, 1.0], Some(r), &style)?;
+                let r = if layer.fill { rect } else { fit_in(rect, cut(c.size)) };
+                pipe.overlay.draw_texture_fx(&srv, c.size, [1.0, 1.0], Some(r), &style, false, &fx)?;
             }
             LayerSource::Image => {
                 let Some(path) = layer.image.clone() else {
@@ -1556,8 +1572,8 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 let Some((size, srv)) = picture(gpu, pipe, &key, || load_picture(&path)) else {
                     continue;
                 };
-                let r = if layer.fill { rect } else { fit_in(rect, size.0 as f64 / size.1.max(1) as f64) };
-                pipe.overlay.draw_texture_alpha(&srv, size, [1.0, 1.0], Some(r), &style, true)?;
+                let r = if layer.fill { rect } else { fit_in(rect, cut(size)) };
+                pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some(r), &style, true, &fx)?;
             }
             LayerSource::Text => {
                 let (w, h) = (rect[2] as usize, rect[3] as usize);
@@ -1568,14 +1584,15 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 }) else {
                     continue;
                 };
-                pipe.overlay.draw_texture_alpha(&srv, size, [1.0, 1.0], Some(rect), &style, true)?;
+                let fx = crate::win::overlay::Fx { crop: [0.0, 0.0, 1.0, 1.0], ..fx };
+                pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some(rect), &style, true, &fx)?;
             }
             LayerSource::Guest => {
                 let Some((size, srv)) = guest_texture(gpu, pipe, layer.guest as usize) else {
                     continue;
                 };
-                let r = if layer.fill { rect } else { fit_in(rect, size.0 as f64 / size.1.max(1) as f64) };
-                pipe.overlay.draw_texture(&srv, size, [1.0, 1.0], Some(r), &style)?;
+                let r = if layer.fill { rect } else { fit_in(rect, cut(size)) };
+                pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some(r), &style, false, &fx)?;
             }
         }
     }

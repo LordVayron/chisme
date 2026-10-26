@@ -26,6 +26,11 @@ cbuffer P : register(b0) {
     float2 uvScale;  // the used part of the texture (window captures)
     float2 pad1;
     float4 border;
+    float4 crop;     // the part of the picture shown (x, y, w, h; 0..1)
+    float2 decorSize; // the unrotated box area (region is its rotated bounds)
+    float2 rot;      // cos, sin of the rotation
+    float opacity;
+    float3 pad2;
 };
 Texture2D cam : register(t0);
 Texture2D decor : register(t1);
@@ -39,15 +44,18 @@ V vs(uint id : SV_VertexID) {
     return o;
 }
 float4 ps(V i) : SV_Target {
-    float2 p = i.uv * region;
+    // Rotated boxes: back into the box's own (unrotated) frame.
+    float2 q = i.uv * region - region * 0.5;
+    float2 p = float2(q.x * rot.x + q.y * rot.y, -q.x * rot.y + q.y * rot.x) + decorSize * 0.5;
+    float outside = any(p < 0) || any(p >= decorSize) ? 1 : 0;
     float2 cu = (p - origin - camOff) / camSize;
-    float inside = (clip > 0.5 && (any(cu < 0) || any(cu > 1))) ? 0 : 1;
+    float inside = (outside > 0.5 || (clip > 0.5 && (any(cu < 0) || any(cu > 1)))) ? 0 : 1;
     if (mirror > 0.5) cu.x = 1 - cu.x;
-    float4 t = cam.Sample(lin, saturate(cu) * uvScale);
+    float4 t = cam.Sample(lin, (crop.xy + saturate(cu) * crop.zw) * uvScale);
     float3 c = t.rgb;
     float sh = 0, ob = 0, ib = 1;
     if (useDecor > 0.5) {
-        float4 d = decor.Load(int3(p, 0));
+        float4 d = outside > 0.5 ? float4(0, 0, 0, 0) : decor.Load(int3(p, 0));
         sh = d.r; ob = d.g; ib = d.b;
     }
     ib *= inside;
@@ -57,7 +65,7 @@ float4 ps(V i) : SV_Target {
     float a = sh;
     col = border.rgb * ob + col * (1 - ob); a = ob + a * (1 - ob);
     col = c * ib + col * (1 - ib);          a = ib + a * (1 - ib);
-    return float4(col, a);
+    return float4(col, a) * opacity;
 }
 "#;
 
@@ -75,6 +83,28 @@ struct Params {
     uv_scale: [f32; 2],
     pad1: [f32; 2],
     border: [f32; 4],
+    crop: [f32; 4],
+    decor_size: [f32; 2],
+    rot: [f32; 2],
+    opacity: f32,
+    pad2: [f32; 3],
+}
+
+/// A layer's effects: the part of the picture shown, see-through and turn.
+#[derive(Clone, Copy, Debug)]
+pub struct Fx {
+    /// x, y, w, h as fractions of the picture.
+    pub crop: [f64; 4],
+    /// 0 (invisible) to 1.
+    pub opacity: f64,
+    /// Degrees, clockwise.
+    pub rotation: f64,
+}
+
+impl Default for Fx {
+    fn default() -> Self {
+        Fx { crop: [0.0, 0.0, 1.0, 1.0], opacity: 1.0, rotation: 0.0 }
+    }
 }
 
 fn compile(entry: PCSTR, target: PCSTR) -> Result<ID3DBlob> {
@@ -234,24 +264,57 @@ impl Overlay {
 
     /// `draw_texture` for pictures with transparency (images, text).
     pub fn draw_texture_alpha(&mut self, srv: &ID3D11ShaderResourceView, src_size: (u32, u32), uv_scale: [f32; 2], rect: Option<[f64; 4]>, style: &PipSpec, alpha: bool) -> Result<()> {
+        self.draw_texture_fx(srv, src_size, uv_scale, rect, style, alpha, &Fx::default())
+    }
+
+    /// `draw_texture_alpha` with a crop, opacity and rotation (`fx`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_texture_fx(&mut self, srv: &ID3D11ShaderResourceView, src_size: (u32, u32), uv_scale: [f32; 2], rect: Option<[f64; 4]>, style: &PipSpec, alpha: bool, fx: &Fx) -> Result<()> {
+        if fx.opacity <= 0.001 {
+            return Ok(());
+        }
         let (ow, oh) = (self.out.0 as f64, self.out.1 as f64);
-        let (cw, ch) = (src_size.0.max(1) as f64, src_size.1.max(1) as f64);
-        let mut p = Params { mirror: style.mirror as u32 as f32, clip: 1.0, uv_scale, use_alpha: alpha as u32 as f32, ..Default::default() };
+        let c4 = fx.crop;
+        // The shown part's size, in source pixels.
+        let (cw, ch) = (src_size.0.max(1) as f64 * c4[2].clamp(0.01, 1.0), src_size.1.max(1) as f64 * c4[3].clamp(0.01, 1.0));
+        let mut p = Params {
+            mirror: style.mirror as u32 as f32,
+            clip: 1.0,
+            uv_scale,
+            use_alpha: alpha as u32 as f32,
+            crop: c4.map(|v| v as f32),
+            rot: [1.0, 0.0],
+            opacity: fx.opacity.clamp(0.0, 1.0) as f32,
+            ..Default::default()
+        };
+        let mut grow = (0.0, 0.0);
         let (region_xy, decor) = if let Some([x, y, w, h]) = rect {
             let (dsrv, size, origin) = self.decor_srv(style, w as usize, h as usize)?;
             let (s, tx, ty) = fit(cw, ch, w, h, true);
             let [r, g, b] = style.border_color.map(|c| c as f32 / 255.0);
             p.region = [size.0 as f32, size.1 as f32];
+            p.decor_size = p.region;
+            // Turned: draw over the rotated box's bounds.
+            if fx.rotation.abs() > 0.01 {
+                let a = fx.rotation.to_radians();
+                let (co, si) = (a.cos(), a.sin());
+                let (sw, sh) = (size.0 as f64, size.1 as f64);
+                let (bw, bh) = ((sw * co).abs() + (sh * si).abs(), (sw * si).abs() + (sh * co).abs());
+                p.region = [bw.ceil() as f32, bh.ceil() as f32];
+                p.rot = [co as f32, si as f32];
+                grow = ((bw.ceil() - sw) / 2.0, (bh.ceil() - sh) / 2.0);
+            }
             p.origin = [origin.0 as f32, origin.1 as f32];
             p.cam_size = [(cw * s) as f32, (ch * s) as f32];
             p.cam_off = [tx as f32, ty as f32];
             p.use_decor = 1.0;
             p.border = [r, g, b, 1.0];
-            ((x - origin.0 as f64, y - origin.1 as f64), Some(dsrv))
+            ((x - origin.0 as f64 - grow.0, y - origin.1 as f64 - grow.1), Some(dsrv))
         } else {
             // Full frame, cropped to fill.
             let (s, tx, ty) = fit(cw, ch, ow, oh, true);
             p.region = [ow as f32, oh as f32];
+            p.decor_size = p.region;
             p.cam_size = [(cw * s) as f32, (ch * s) as f32];
             p.cam_off = [tx as f32, ty as f32];
             ((0.0, 0.0), None)
