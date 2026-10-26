@@ -32,6 +32,7 @@ and versions follow [Semantic Versioning](https://semver.org).
 - Studio page: the Media Board sits under the preview, and the right column's cards end with it (Camera, or Layers while editing, takes the height left), so there's no empty space.
 - While you edit a layout, the Layers card sits beside the preview and uses the full height (Live audio goes under it), so the preview and all the settings are visible together.
 - The Chat card shows on the Studio page only while you're live.
+- Guests: "Invite a guest" is always there and says what's missing (a project URL typed as https://… or without a prefix works too).
 - Every scene keeps its own 9:16 layout. Changing the 9:16 layout of one scene no longer changes another, and the 9:16 layout no longer changes when you edit the 16:9 one.
 - Choosing a studio on the Templates page shows only its templates; "See all" shows every one.
 - A "View: 16:9 | 9:16 | Both" switch under the preview replaces the small 16:9 and 9:16 buttons on the pictures.
@@ -39,10 +40,10 @@ and versions follow [Semantic Versioning](https://semver.org).
 - In a smaller window the Layers card keeps the room it needs (picture, shape, border…) and the page scrolls instead.
 
 ### Fixed
+- The Layers, Camera and Chat cards scroll inside the card (with a visible scroll bar) when the window is small, instead of cutting off their settings.
 - Looping clips and sounds play again with no gap: the next pass is ready before the current one ends, so the picture never goes black between them.
 
 ### Changed
-- Virtual background: a second, more precise model (MODNet, downloaded once, 26 MB, the first time you use a virtual background) checks a few times a second where you can't be, so desks, lamps and walls the fast model mistakes for you are cut out. The fast model still follows you frame by frame.
 
 ### Added
 - Loop for Media Board clips and sounds: the ↻ button on a tile makes it start again when it ends, until you stop it (it applies to what's already playing too).

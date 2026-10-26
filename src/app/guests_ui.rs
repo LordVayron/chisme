@@ -108,10 +108,16 @@ pub fn page(app: &mut App, ui: &mut Ui, area: Rect) {
         }
         right = b.left() - 10.0;
     }
-    if ready {
+    {
         let b = Rect::from_min_size(pos2(right - 170.0, gear.top()), vec2(170.0, 38.0));
         if pill(ui, b, "g-invite", l("Invite a guest", "Invitar a alguien"), true) {
-            app.guests_invite(&ctx);
+            match app.settings.guests.missing(&app.guest_secret) {
+                None => app.guests_invite(&ctx),
+                Some(what) => {
+                    app.guest_setup = true;
+                    app.toast(t!("Add {} below first (only once)", "Primero agrega {} abajo (solo una vez)", what));
+                }
+            }
         }
         let nr = Rect::from_min_size(pos2(b.left() - 10.0 - 190.0, gear.top() + 4.0), vec2(190.0, 30.0));
         if nr.left() > bar.left() + 360.0 {
@@ -324,15 +330,15 @@ fn setup(app: &mut App, ui: &mut Ui, area: Rect, ready: bool) {
             let _ = if s.is_empty() { crate::win::creds::delete("livekit") } else { crate::win::creds::set("livekit", &s) };
         }
         if changed {
-            app.settings.guests.url = app.settings.guests.url.trim().to_string();
+            app.settings.guests.url = crate::guests::Config::normal_url(&app.settings.guests.url);
             app.settings.guests.api_key = app.settings.guests.api_key.trim().to_string();
             let _ = app.settings.save();
         }
         ui.add_space(10.0);
-        ui.label(egui::RichText::new(if ready {
-            l("Ready. You only do this once: click \"Invite a guest\" up top.", "Listo. Esto se hace una sola vez: haz clic en \"Invitar a alguien\" arriba.")
-        } else {
-            l("Fill in all three to open the green room.", "Llena los tres para abrir la sala.")
-        }).font(body(12.5)).color(if ready { GREEN } else { FAINT }));
+        let msg = match app.settings.guests.missing(&app.guest_secret) {
+            None => l("Ready. You only do this once: click \"Invite a guest\" up top.", "Listo. Esto se hace una sola vez: haz clic en \"Invitar a alguien\" arriba.").to_string(),
+            Some(what) => t!("Missing: {}. The URL is on your project's page in LiveKit Cloud (wss://…livekit.cloud).", "Falta: {}. La URL está en la página de tu proyecto en LiveKit Cloud (wss://…livekit.cloud).", what),
+        };
+        ui.label(egui::RichText::new(msg).font(body(12.5)).color(if ready { GREEN } else { ORANGE }));
     });
 }

@@ -793,7 +793,8 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
     let (ow, oh) = app.frame(v);
     let content_aspect = app.source_aspect(&Layer::default());
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false; 2]).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).show(ui, |ui| {
+        ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
+        egui::ScrollArea::vertical().max_height(inner.height()).auto_shrink([false; 2]).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).show(ui, |ui| {
             // Which layout: 16:9 or 9:16.
             if show_h && show_v {
                 ui.horizontal(|ui| {

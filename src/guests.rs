@@ -25,6 +25,33 @@ pub struct Config {
 }
 
 impl Config {
+    /// What's missing to make links, if anything.
+    pub fn missing(&self, secret: &str) -> Option<&'static str> {
+        if !(self.url.starts_with("wss://") || self.url.starts_with("ws://")) {
+            Some(crate::i18n::l("the Project URL", "la URL del proyecto"))
+        } else if self.api_key.is_empty() {
+            Some(crate::i18n::l("the API key", "la API key"))
+        } else if secret.is_empty() {
+            Some(crate::i18n::l("the API secret", "el API secret"))
+        } else {
+            None
+        }
+    }
+
+    /// A project URL as typed (https://…, or just the host) as wss://.
+    pub fn normal_url(u: &str) -> String {
+        let u = u.trim().trim_end_matches('/');
+        if u.is_empty() || u.starts_with("wss://") || u.starts_with("ws://") {
+            u.to_string()
+        } else if let Some(h) = u.strip_prefix("https://") {
+            format!("wss://{h}")
+        } else if let Some(h) = u.strip_prefix("http://") {
+            format!("ws://{h}")
+        } else {
+            format!("wss://{u}")
+        }
+    }
+
     pub fn ready(&self, secret: &str) -> bool {
         (self.url.starts_with("wss://") || self.url.starts_with("ws://")) && !self.api_key.is_empty() && !secret.is_empty()
     }
