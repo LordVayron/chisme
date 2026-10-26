@@ -424,7 +424,14 @@ mod tests {
             }
             let cam = gpu.texture(w, h, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET).unwrap();
             unsafe { gpu.context.UpdateSubresource(&cam, 0, None, bgra.as_ptr() as _, w * 4, 0) };
-            let mask: Vec<u8> = seg.run(&bgra, w as usize, h as usize).unwrap().iter().map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8).collect();
+            let input = crate::segment::downsample(&bgra, w as usize, h as usize);
+            let mut m = seg.run_input(input.clone()).unwrap();
+            // MODNET=model.onnx: the hybrid mask, as the worker makes it.
+            if let Ok(p) = std::env::var("MODNET") {
+                let a = crate::segment::allow_mask(&crate::segment::ModNet::new(std::path::Path::new(&p)).unwrap().run(&input).unwrap(), 8);
+                m.iter_mut().zip(&a).for_each(|(v, k)| *v *= k);
+            }
+            let mask: Vec<u8> = m.iter().map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8).collect();
             let mut m = Matte::new(&gpu, &cam, (w, h), 30).unwrap();
             m.set_mask(&mask);
             let stem = name.trim_end_matches("_1080.png");

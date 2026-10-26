@@ -43,6 +43,124 @@ impl Segmenter {
     }
 }
 
+/// MODNet (portrait matting, Apache-2.0; the ONNX export from Xenova on
+/// Hugging Face). Slower than the selfie model, so it runs a few times a
+/// second beside it and only tells it where the person can't be.
+pub const MODNET_URL: &str = "https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx";
+pub const MODNET_SHA256: &str = "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9";
+/// Its input: 256x160 (a multiple of 32, close to 16:9).
+const MW: usize = 256;
+const MH: usize = 160;
+
+pub fn modnet_path() -> std::path::PathBuf {
+    crate::subtitles::models_dir().join("modnet.onnx")
+}
+
+/// The MODNet file, downloaded and checked the first time.
+pub fn ensure_modnet() -> Result<std::path::PathBuf> {
+    use std::io::{Read, Write};
+    let path = modnet_path();
+    if path.is_file() {
+        return Ok(path);
+    }
+    std::fs::create_dir_all(crate::subtitles::models_dir())?;
+    let part = path.with_extension("part");
+    let resp = ureq::get(MODNET_URL).call()?;
+    let mut reader = resp.into_body().into_reader();
+    let mut file = std::io::BufWriter::new(std::fs::File::create(&part)?);
+    let mut hash = <sha2::Sha256 as sha2::Digest>::new();
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        sha2::Digest::update(&mut hash, &buf[..n]);
+        file.write_all(&buf[..n])?;
+    }
+    file.flush()?;
+    drop(file);
+    // Only the exact published file is ever loaded.
+    let got: String = sha2::Digest::finalize(hash).iter().map(|b| format!("{b:02x}")).collect();
+    if got != MODNET_SHA256 {
+        let _ = std::fs::remove_file(&part);
+        anyhow::bail!("the downloaded MODNet doesn't match the published one");
+    }
+    std::fs::rename(&part, &path)?;
+    Ok(path)
+}
+
+pub struct ModNet {
+    plan: Arc<TypedRunnableModel>,
+}
+
+impl ModNet {
+    pub fn new(path: &std::path::Path) -> Result<ModNet> {
+        let plan = tract_onnx::onnx().model_for_path(path)?.with_input_fact(0, f32::fact([1, 3, MH, MW]).into())?.into_optimized()?.into_runnable()?;
+        Ok(ModNet { plan })
+    }
+
+    /// `input`: a `downsample`d frame (planar 256x256 RGB, 0..1). Returns
+    /// the person's alpha at 256x256.
+    pub fn run(&self, input: &[f32]) -> Result<Vec<f32>> {
+        let plane = SIZE * SIZE;
+        let mut x = vec![0f32; 3 * MW * MH];
+        for c in 0..3 {
+            for y in 0..MH {
+                let sy = (((y as f32 + 0.5) * SIZE as f32 / MH as f32) as usize).min(SIZE - 1);
+                for xx in 0..MW {
+                    x[c * MW * MH + y * MW + xx] = input[c * plane + sy * SIZE + xx] * 2.0 - 1.0;
+                }
+            }
+        }
+        let t: Tensor = tract_ndarray::Array4::from_shape_vec((1, 3, MH, MW), x)?.into();
+        let out = self.plan.run(tvec!(t.into()))?;
+        let a: Vec<f32> = out[0].to_plain_array_view::<f32>()?.iter().copied().collect();
+        // Back to 256 rows (linear).
+        let mut m = vec![0f32; plane];
+        for y in 0..SIZE {
+            let fy = ((y as f32 + 0.5) * MH as f32 / SIZE as f32 - 0.5).clamp(0.0, (MH - 1) as f32);
+            let (y0, k) = (fy.floor() as usize, fy.fract());
+            let y1 = (y0 + 1).min(MH - 1);
+            for xx in 0..SIZE {
+                m[y * SIZE + xx] = a[y0 * MW + xx] * (1.0 - k) + a[y1 * MW + xx] * k;
+            }
+        }
+        Ok(m)
+    }
+}
+
+/// Where the person can be: MODNet's alpha grown by `r` cells (to cover
+/// movement since it last ran) and softened. Multiplied into the selfie
+/// mask, it removes what MODNet sees as background.
+pub fn allow_mask(alpha: &[f32], r: usize) -> Vec<f32> {
+    let n = SIZE;
+    let on: Vec<f32> = alpha.iter().map(|&a| if a > 0.25 { 1.0 } else { 0.0 }).collect();
+    let pass = |src: &[f32], horizontal: bool, reach: isize, max: bool| -> Vec<f32> {
+        let mut out = vec![0f32; n * n];
+        for y in 0..n {
+            for x in 0..n {
+                let (mut m, mut s, mut c) = (0f32, 0f32, 0f32);
+                for o in -reach..=reach {
+                    let (xx, yy) = if horizontal { (x as isize + o, y as isize) } else { (x as isize, y as isize + o) };
+                    if xx >= 0 && yy >= 0 && (xx as usize) < n && (yy as usize) < n {
+                        let v = src[yy as usize * n + xx as usize];
+                        m = m.max(v);
+                        s += v;
+                        c += 1.0;
+                    }
+                }
+                out[y * n + x] = if max { m } else { s / c };
+            }
+        }
+        out
+    };
+    let r = r as isize;
+    let grown = pass(&pass(&on, true, r, true), false, r, true);
+    // A short ramp so the cut isn't hard.
+    pass(&pass(&grown, true, 3, false), false, 3, false)
+}
+
 /// Drop islands the model mistakes for a person (a lamp's glow, a patch of
 /// wall): keep the regions at least a fifth the size of the largest one.
 pub fn keep_main(mask: &mut [f32]) {
@@ -188,6 +306,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn allow_mask_grows_the_person() {
+        let mut a = vec![0f32; SIZE * SIZE];
+        for y in 100..150 {
+            for x in 100..150 {
+                a[y * SIZE + x] = 1.0;
+            }
+        }
+        let m = allow_mask(&a, 10);
+        assert_eq!(m[125 * SIZE + 125], 1.0, "inside");
+        assert!(m[125 * SIZE + 155] > 0.9, "a little outside is still allowed");
+        assert_eq!(m[20 * SIZE + 20], 0.0, "far away is not");
+    }
+
+    #[test]
     fn small_islands_are_dropped() {
         let mut m = vec![0f32; SIZE * SIZE];
         for y in 100..200 {
@@ -251,3 +383,4 @@ mod tests {
         }
     }
 }
+

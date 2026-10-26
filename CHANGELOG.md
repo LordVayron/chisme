@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- Virtual background: a second, more precise model (MODNet, downloaded once, 26 MB, the first time you use a virtual background) checks a few times a second where you can't be, so desks, lamps and walls the fast model mistakes for you are cut out. The fast model still follows you frame by frame.
+
 ### Added
 - Loop for Media Board clips and sounds: the ↻ button on a tile makes it start again when it ends, until you stop it (it applies to what's already playing too).
 - "Be right back" and "Starting soon" screens, in the Gaming / Stream studio and on the Templates page. Play a looping clip from the Media Board behind them if you like.
