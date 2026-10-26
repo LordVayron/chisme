@@ -446,7 +446,7 @@ mod tests {
         let secret = crate::win::creds::get("livekit").expect("secret");
         let cfg = Config { url: std::env::var("CHISME_LK_URL").unwrap(), api_key: std::env::var("CHISME_LK_KEY").unwrap(), room: new_room_name() };
         let host = start(cfg.clone(), secret.clone()).unwrap();
-        let link = invite_link(&cfg, &secret).unwrap();
+        let link = invite_link(&cfg, &secret, "").unwrap();
         let tok = link.split("token=").nth(1).unwrap().to_string();
         let rt = tokio::runtime::Runtime::new().unwrap();
         let _guest = rt.block_on(async {
@@ -509,10 +509,13 @@ mod tests {
     #[test]
     fn invite_links_carry_a_signed_token() {
         let cfg = Config { url: "wss://demo.livekit.cloud".into(), api_key: "APIdemo".into(), room: "chisme-abc".into() };
-        let link = invite_link(&cfg, "secret-secret-secret-secret-secret").unwrap();
+        let link = invite_link(&cfg, "secret-secret-secret-secret-secret", "").unwrap();
         assert!(link.starts_with(JOIN_PAGE));
         assert!(link.contains("url=wss%3A%2F%2Fdemo.livekit.cloud&token=ey"));
         assert!(cfg.ready("x"));
         assert!(!Config::default().ready("x"));
+        // A name fills the guest's name field.
+        let named = invite_link(&cfg, "secret-secret-secret-secret-secret", "Ana Paz").unwrap();
+        assert!(named.ends_with("&name=Ana%20Paz"));
     }
 }
