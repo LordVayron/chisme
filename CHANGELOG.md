@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-27
+
+### Added
+- Update notice: once a day at most, Chisme checks GitHub for a newer version. When there is one, a card in the corner offers "What's new" (the release notes) and "Update now", which downloads the installer, checks it, installs it silently and reopens Chisme.
+- It never shows or installs while you're recording or live; if the download finishes then, "Install now" waits for you.
+- Settings → General: "Check for updates" (on by default), the version you have, and "Check now".
+- Note: versions 0.7.0 and older don't have this, so install 0.7.1 by hand once.
+
 ## [0.7.0] - 2026-10-26
 
 ### Added
