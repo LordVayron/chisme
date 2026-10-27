@@ -71,11 +71,18 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; Value
 
 [Run]
 Filename: "{app}\chisme-app.exe"; Description: "{cm:LaunchProgram,Chisme}"; Flags: nowait postinstall skipifsilent
+; The in-app update installs silently with /relaunch=1 and reopens Chisme.
+Filename: "{app}\chisme-app.exe"; Flags: nowait runasoriginaluser; Check: RelaunchAfterUpdate
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM chisme-app.exe /F"; Flags: runhidden; RunOnceId: "StopChisme"
 
 [Code]
+function RelaunchAfterUpdate: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:relaunch|0}') = '1');
+end;
+
 function NeedsAddPath(Dir: string): Boolean;
 var
   Path: string;

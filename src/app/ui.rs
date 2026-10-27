@@ -44,6 +44,8 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
         toast(app, ui, full);
         save_dialog(app, ui.ctx());
         end_live_dialog(app, ui.ctx());
+        update_card(app, ui.ctx());
+        update_notes(app, ui.ctx());
     });
 }
 
@@ -1909,7 +1911,7 @@ fn settings(app: &mut App, ui: &mut Ui, area: Rect) {
     ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
         ScrollArea::vertical().id_salt("settings-page").auto_shrink([false; 2]).show(ui, |ui| {
             let width = area.width() - 14.0;
-            let (h1, h2, h3, h4) = (276.0, 308.0, 150.0, 380.0);
+            let (h1, h2, h3, h4) = (276.0, 352.0, 150.0, 380.0);
             let one = width < 900.0;
             let col_w = if one { width } else { (width - 16.0) / 2.0 };
             let total = if one { 2.0 * (h1 + h2 + h3) + h4 + 112.0 } else { h1 + h2 + h3 + h4 + 48.0 };
@@ -2076,6 +2078,25 @@ fn general_section(app: &mut App, ui: &mut Ui, rect: Rect, w: f32) {
                 crate::i18n::set(app.settings.language);
             }
             ui.label("")
+        });
+        row(ui, l("Check for updates", "Buscar actualizaciones"), |ui| toggle(ui, &mut app.settings.update_check));
+        ui.horizontal(|ui| {
+            use crate::update::State;
+            let status = match &*app.update.lock().unwrap() {
+                State::Checking => l("checking…", "buscando…").to_string(),
+                State::UpToDate => l("up to date", "al día").to_string(),
+                State::Available(r) | State::Downloading(r, _) | State::Ready(r, _) => t!("{} is available", "{} disponible", r.version),
+                State::Failed(_) => l("couldn't check", "no se pudo revisar").to_string(),
+                State::Idle => String::new(),
+            };
+            let line = if status.is_empty() { t!("Version {}", "Versión {}", env!("CARGO_PKG_VERSION")) } else { t!("Version {}  ·  {}", "Versión {}  ·  {}", env!("CARGO_PKG_VERSION"), status) };
+            ui.label(egui::RichText::new(line).color(FAINT).size(12.0));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let idle = !matches!(&*app.update.lock().unwrap(), State::Checking | State::Downloading(..));
+                if ui.add_enabled(idle, egui::Button::new(l("Check now", "Buscar ahora"))).clicked() {
+                    app.check_updates();
+                }
+            });
         });
         ui.add_space(8.0);
         ui.label(egui::RichText::new(l("Recordings folder", "Carpeta de grabaciones")).color(MUTED).size(13.0));
@@ -2347,6 +2368,110 @@ fn end_live_dialog(app: &mut App, ctx: &egui::Context) {
     }
     if end || cancel {
         app.end_live_ask = false;
+    }
+}
+
+/// "Chisme X is available" in the bottom-right corner. Hidden while
+/// recording or streaming.
+fn update_card(app: &mut App, ctx: &egui::Context) {
+    use crate::update::State;
+    let state = app.update.lock().unwrap().clone();
+    let (title, sub, progress, button) = match &state {
+        State::Available(r) => (t!("Chisme {} is available", "Chisme {} está disponible", r.version), t!("You have {}.", "Tienes la {}.", env!("CARGO_PKG_VERSION")), None, Some(l("Update now", "Actualizar"))),
+        State::Downloading(r, f) => (t!("Chisme {} is available", "Chisme {} está disponible", r.version), t!("Downloading…  {:.0}%", "Descargando…  {:.0}%", f * 100.0), Some(*f), None),
+        State::Ready(r, _) => (t!("Chisme {} is ready", "Chisme {} está lista", r.version), l("Chisme closes, installs it and opens again.", "Chisme se cierra, la instala y vuelve a abrir.").to_string(), None, Some(l("Install now", "Instalar"))),
+        // Only failures of an update you asked for (a quiet check stays quiet).
+        State::Failed(e) if app.update_asked => (l("Couldn't update", "No se pudo actualizar").to_string(), truncate(e, 90), None, None),
+        _ => return,
+    };
+    if app.busy() || app.update_later || app.update_notes {
+        return;
+    }
+    let (mut now, mut later, mut notes) = (false, false, false);
+    egui::Area::new(Id::new("update-card")).order(egui::Order::Foreground).anchor(Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0)).show(ctx, |ui| {
+        Frame::NONE
+            .fill(Color32::from_rgb(28, 28, 31))
+            .stroke(Stroke::new(1.0, Color32::from_rgba_premultiplied(70, 70, 76, 90)))
+            .corner_radius(CornerRadius::same(18))
+            .inner_margin(16)
+            .show(ui, |ui| {
+                ui.set_width(330.0);
+                ui.label(egui::RichText::new(title).font(medium(15.0)).color(TEXT));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(sub).color(MUTED).size(12.5));
+                if let Some(f) = progress {
+                    ui.add_space(8.0);
+                    ui.add(egui::ProgressBar::new(f).desired_height(6.0).fill(ORANGE));
+                }
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if let Some(b) = button
+                        && ui.add(egui::Button::new(egui::RichText::new(b).strong().color(Color32::BLACK)).fill(Color32::WHITE).min_size(vec2(110.0, 30.0))).clicked()
+                    {
+                        now = true;
+                    }
+                    if !matches!(state, State::Failed(_)) && ui.add(egui::Button::new(l("What's new", "Novedades")).min_size(vec2(96.0, 30.0))).clicked() {
+                        notes = true;
+                    }
+                    if ui.add(egui::Button::new(if matches!(state, State::Failed(_)) { l("Close", "Cerrar") } else { l("Later", "Después") }).min_size(vec2(80.0, 30.0))).clicked() {
+                        later = true;
+                    }
+                });
+            });
+    });
+    if now {
+        app.update_now();
+    }
+    if notes {
+        app.update_notes = true;
+    }
+    if later {
+        app.update_later = true;
+        app.update_install = false;
+        app.update_asked = false;
+    }
+}
+
+/// The release notes of the new version.
+fn update_notes(app: &mut App, ctx: &egui::Context) {
+    use crate::update::State;
+    if !app.update_notes {
+        return;
+    }
+    let rel = match &*app.update.lock().unwrap() {
+        State::Available(r) | State::Downloading(r, _) | State::Ready(r, _) => r.clone(),
+        _ => {
+            app.update_notes = false;
+            return;
+        }
+    };
+    let (mut update, mut close) = (false, false);
+    egui::Modal::new(Id::new("update-notes")).show(ctx, |ui| {
+        ui.set_width(520.0);
+        ui.label(egui::RichText::new(t!("What's new in Chisme {}", "Novedades de Chisme {}", rel.version)).font(display(18.0)).color(TEXT));
+        ui.add_space(10.0);
+        ScrollArea::vertical().id_salt("update-notes").max_height(360.0).show(ui, |ui| {
+            ui.label(egui::RichText::new(crate::update::plain_notes(&rel.notes)).color(MUTED).size(13.0));
+        });
+        ui.add_space(8.0);
+        if !rel.page.is_empty() {
+            ui.hyperlink_to(l("See it on GitHub", "Verla en GitHub"), &rel.page);
+        }
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            if !app.busy() && ui.add(egui::Button::new(egui::RichText::new(l("Update now", "Actualizar")).strong().color(Color32::BLACK)).fill(Color32::WHITE).min_size(vec2(120.0, 30.0))).clicked() {
+                update = true;
+            }
+            if ui.add(egui::Button::new(l("Close", "Cerrar")).min_size(vec2(90.0, 30.0))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                close = true;
+            }
+        });
+    });
+    if update {
+        app.update_now();
+    }
+    if update || close {
+        app.update_notes = false;
     }
 }
 

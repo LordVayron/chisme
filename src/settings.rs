@@ -140,6 +140,10 @@ pub struct Settings {
     pub tutorial: crate::tutorial::Tutorial,
     /// Studio page: the Tutorial mode card folded to its title.
     pub fold_tutorial: bool,
+    /// Look for a newer version on start (at most once a day).
+    pub update_check: bool,
+    /// When a check last found Chisme up to date (Unix seconds).
+    pub update_last: u64,
     /// Window to record instead of a display (not saved: handles change).
     #[serde(skip)]
     pub window: Option<(usize, String)>,
@@ -313,6 +317,8 @@ impl Default for Settings {
             vbg: Default::default(),
             tutorial: Default::default(),
             fold_tutorial: true,
+            update_check: true,
+            update_last: 0,
             window: None,
         }
     }

@@ -293,6 +293,17 @@ powershell -ExecutionPolicy Bypass -File scripts\package.ps1   # → dist\Chisme
 - Can add `chisme` to the PATH.
 - Includes an uninstaller that also removes the PATH entry.
 
+**Updates (0.7.1 and later).** Once a day at most (Settings → General → "Check for updates"),
+the app asks `api.github.com/repos/LordVayron/chisme/releases/latest`. If the tag is newer, a card
+offers the release notes and "Update now":
+- It downloads the `Chisme-Setup-*.exe` asset to `%TEMP%\Chisme-update`, only from the repo's
+  release downloads, and checks its size (and SHA-256 when GitHub lists it).
+- It runs it with `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /relaunch=1` and
+  quits; the installer reopens Chisme when `/relaunch=1` is given in silent mode.
+- Nothing shows or installs while recording or streaming.
+- Tests: `CHISME_UPDATE_URL=<url>` replaces the GitHub address with a local server that returns
+  the same JSON, and allows an installer from any address.
+
 **Two executables:**
 - `chisme-app.exe` is the app, with no console window.
 - `chisme.exe` is the command line. Run with no arguments, it also opens the app.

@@ -202,6 +202,14 @@ pub struct App {
     /// When the app started (tests).
     pub started: std::time::Instant,
     pub guest_thumbs: std::collections::HashMap<String, (u64, egui::TextureHandle)>,
+    /// Update notice: the check or download, the card closed with "Later",
+    /// the notes open, and "Update now" pressed (install once downloaded).
+    pub update: crate::update::Shared,
+    pub update_later: bool,
+    pub update_notes: bool,
+    pub update_install: bool,
+    /// "Update now" was pressed (its errors show on the card).
+    pub update_asked: bool,
 }
 
 const HISTORY: usize = 200; // 10 s at 20 Hz
@@ -235,6 +243,12 @@ impl App {
             let _ = settings.save();
         }
         let keys = Platform::ALL.iter().map(|p| (*p, crate::win::creds::get(p.id()).unwrap_or_default())).collect();
+        // Look for a newer version at most once a day (always while one was
+        // found and not installed yet).
+        let update = crate::update::Shared::default();
+        if settings.update_check && unix_now().saturating_sub(settings.update_last) > 24 * 3600 {
+            crate::update::spawn_check(&update);
+        }
         App {
             settings,
             engine: Some(engine),
@@ -310,6 +324,58 @@ impl App {
             live_rec_at: std::time::Instant::now(),
             started: std::time::Instant::now(),
             guest_thumbs: Default::default(),
+            update,
+            update_later: false,
+            update_notes: false,
+            update_install: false,
+            update_asked: false,
+        }
+    }
+
+    /// Settings' "Check now".
+    pub fn check_updates(&mut self) {
+        self.update_later = false;
+        self.update_asked = false;
+        crate::update::spawn_check(&self.update);
+    }
+
+    /// Download the new version, then install it (now, or when the
+    /// recording or stream ends).
+    pub fn update_now(&mut self) {
+        let state = self.update.lock().unwrap().clone();
+        self.update_asked = true;
+        match state {
+            crate::update::State::Available(r) => {
+                self.update_install = true;
+                crate::update::spawn_download(&self.update, r);
+            }
+            crate::update::State::Ready(..) => self.update_install = true,
+            _ => {}
+        }
+    }
+
+    fn poll_update(&mut self, ctx: &egui::Context) {
+        use crate::update::State;
+        let state = self.update.lock().unwrap().clone();
+        match state {
+            State::UpToDate if unix_now().saturating_sub(self.settings.update_last) > 3600 => {
+                self.settings.update_last = unix_now();
+                let _ = self.settings.save();
+            }
+            // Never during a recording or a stream: it waits for "Install now".
+            State::Ready(_, path) if self.update_install => {
+                self.update_install = false;
+                if !self.busy() {
+                    match crate::update::install(&path) {
+                        Ok(()) => {
+                            self.quitting = true;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        Err(e) => *self.update.lock().unwrap() = State::Failed(format!("{e:#}")),
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -811,6 +877,7 @@ impl App {
             }
         }
         self.pump_jobs();
+        self.poll_update(ctx);
 
         // Hotkeys and tray.
         // Shortcuts: none while a new one is being typed in Settings;
@@ -875,6 +942,10 @@ impl App {
             t.marker.set_enabled(self.status.recording);
         }
     }
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 impl eframe::App for App {
