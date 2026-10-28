@@ -1,0 +1,26 @@
+name: Sponsor listing
+description: You sponsor Chisme and want your name or logo listed
+labels: [sponsor]
+body:
+  - type: input
+    id: name
+    attributes:
+      label: Name to show
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Link (https://…)
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Tier
+      options: [Supporter ($5), Backer ($25), Partner ($100), Main ($500)]
+    validations:
+      required: true
+  - type: textarea
+    id: logo
+    attributes:
+      label: Logo (Partner and Main)
+      description: Drop a PNG with a transparent background, about 480x160.

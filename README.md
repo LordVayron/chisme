@@ -130,6 +130,8 @@ The [technical guide](docs/GUIDE.md) covers every option and how each part works
 - **The internet is used only when you ask for it:** to stream, to host guests (through your
   LiveKit project), and to download a Whisper model the first time you make subtitles. That model comes from Hugging Face and is checked against a
   pinned SHA-256.
+- **Two small requests to GitHub:** once a day Chisme asks for the latest version (you can turn
+  it off in Settings), and the Support page loads the sponsor list when you open it.
 - **Stream keys** and your LiveKit API secret are stored in Windows Credential Manager, never in
   plain text.
 - **Chisme's own windows never show up in a recording**, the teleprompter included.
@@ -204,6 +206,11 @@ Chisme stands on great open-source work:
   License.
 
 See [NOTICE.md](NOTICE.md) for the full attributions.
+
+## Sponsors
+
+Chisme is free, with no ads. Sponsors keep it that way, and their names and logos show in the
+app's **Support Chisme** page. See [SPONSORS.md](SPONSORS.md) for the tiers.
 
 ## Contributing
 
