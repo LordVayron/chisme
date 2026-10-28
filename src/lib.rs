@@ -26,5 +26,6 @@ pub mod templates;
 pub mod timeline;
 pub mod tutorial;
 pub mod update;
+pub mod sponsors;
 pub mod vbg;
 pub mod win;

@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-27
+
+### Added
+- Support Chisme: a heart in the sidebar opens a page with "Become a sponsor" and the sponsors, grouped by tier (Main, Partner, Backer, Supporter) with their logos and links. The list comes from `sponsors.json` in the repo, so it updates without a new version, and it loads only when you open the page.
+- `SPONSORS.md` with the tiers and how to sign up, a Sponsor button on GitHub, and a "Sponsor listing" issue form.
+
 ## [0.7.1] - 2026-10-27
 
 ### Added

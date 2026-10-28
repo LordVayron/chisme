@@ -39,6 +39,7 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
             Page::Media => super::media_ui::page(app, ui, body),
             Page::Prompter => super::prompter::page(app, ui, body),
             Page::Library => library(app, ui, body),
+            Page::Support => super::support_ui::page(app, ui, body),
             Page::Settings => settings(app, ui, body),
         }
         toast(app, ui, full);
@@ -175,6 +176,7 @@ fn icon(p: &egui::Painter, kind: Page, c: Pos2, color: Color32) {
         Page::Guests => super::guests_ui::icon(p, c, color),
         Page::Media => super::media_ui::icon(p, c, color),
         Page::Prompter => super::prompter::icon(p, c, color),
+        Page::Support => super::support_ui::icon(p, c, color),
         Page::Library => {
             for i in 0..3 {
                 let y = c.y - 7.0 + i as f32 * 7.0;
@@ -224,8 +226,8 @@ fn sidebar(app: &mut App, ui: &mut Ui, rect: Rect) {
             app.page = page;
         }
     };
-    // 56 px apart, closer in short windows so Settings never collides.
-    let step = ((rect.height() - 108.0 - 96.0) / 6.0).clamp(40.0, 56.0);
+    // 56 px apart, closer in short windows so Support never collides.
+    let step = ((rect.height() - 108.0 - 152.0) / 6.0).clamp(40.0, 56.0);
     item(Page::Studio, rect.top() + 108.0, l("Studio", "Estudio"));
     item(Page::Live, rect.top() + 108.0 + step, l("Live", "En vivo"));
     item(Page::Templates, rect.top() + 108.0 + step * 2.0, l("Templates", "Plantillas"));
@@ -233,6 +235,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, rect: Rect) {
     item(Page::Media, rect.top() + 108.0 + step * 4.0, "Media Board");
     item(Page::Prompter, rect.top() + 108.0 + step * 5.0, l("Script & teleprompter", "Guion y teleprompter"));
     item(Page::Library, rect.top() + 108.0 + step * 6.0, l("Recordings", "Grabaciones"));
+    item(Page::Support, rect.bottom() - 96.0, l("Support Chisme", "Apoya a Chisme"));
     item(Page::Settings, rect.bottom() - 40.0, l("Settings", "Ajustes"));
 }
 
@@ -247,6 +250,7 @@ fn header(app: &mut App, ui: &mut Ui, content: Rect) -> Rect {
         Page::Media => "Media Board",
         Page::Prompter => l("Script", "Guion"),
         Page::Library => l("Recordings", "Grabaciones"),
+        Page::Support => l("Support Chisme", "Apoya a Chisme"),
         Page::Settings => l("Settings", "Ajustes"),
     };
     let r = text(&p, content.min + vec2(4.0, 4.0), Align2::LEFT_TOP, title, display(30.0), TEXT);

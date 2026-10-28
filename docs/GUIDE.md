@@ -304,6 +304,16 @@ offers the release notes and "Update now":
 - Tests: `CHISME_UPDATE_URL=<url>` replaces the GitHub address with a local server that returns
   the same JSON, and allows an installer from any address.
 
+**Sponsors (0.7.2 and later).** The heart in the sidebar opens "Support Chisme": a
+"Become a sponsor" button and the sponsors, grouped by tier (Main, Partner, Backer, Supporter).
+- The list is `sponsors.json` in the repo, read from `raw.githubusercontent.com` the first time
+  the page opens, so editing it updates every copy of the app (and the website) with no release.
+- `link` is the sign-up page; each sponsor has `name`, `url` (https only), `tier` and, for Main
+  and Partner, `logo`: a PNG or JPEG path inside the repo (`sponsors/acme.png`), scaled to fit
+  480x160. Other addresses are refused.
+- Tiers and how to sign up are in `SPONSORS.md`.
+- Tests: `CHISME_SPONSORS_URL=<url>` reads the JSON (and the logos next to it) from a local server.
+
 **Two executables:**
 - `chisme-app.exe` is the app, with no console window.
 - `chisme.exe` is the command line. Run with no arguments, it also opens the app.

@@ -9,6 +9,7 @@ mod guests_ui;
 pub mod hotkeys;
 mod media_ui;
 mod prompter;
+mod support_ui;
 mod templates_ui;
 mod theme;
 mod tutorial_ui;
@@ -40,6 +41,7 @@ pub enum Page {
     Media,
     Prompter,
     Library,
+    Support,
     Settings,
 }
 
@@ -210,6 +212,9 @@ pub struct App {
     pub update_install: bool,
     /// "Update now" was pressed (its errors show on the card).
     pub update_asked: bool,
+    /// The Support page's sponsor list and its logos.
+    pub sponsors: crate::sponsors::Shared,
+    pub sponsor_logos: std::collections::HashMap<String, egui::TextureHandle>,
 }
 
 const HISTORY: usize = 200; // 10 s at 20 Hz
@@ -263,6 +268,7 @@ impl App {
                 Ok("guests") => Page::Guests,
                 Ok("library") => Page::Library,
                 Ok("settings") => Page::Settings,
+                Ok("support") => Page::Support,
                 _ => Page::Studio,
             },
             preview: None,
@@ -329,6 +335,8 @@ impl App {
             update_notes: false,
             update_install: false,
             update_asked: false,
+            sponsors: Default::default(),
+            sponsor_logos: Default::default(),
         }
     }
 
