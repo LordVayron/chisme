@@ -28,7 +28,7 @@ pub fn thumbnail(p: &Painter, frame: Rect, layout: &Layout, brand: &Brand) {
             _ => CornerRadius::same((l.roundness as f32 * lr.height().min(lr.width()) / 2.0).min(120.0) as u8),
         };
         match l.source {
-            Source::Screen => {
+            Source::Screen | Source::Window => {
                 p.rect_filled(lr, round, Color32::from_rgb(52, 54, 60));
                 p.rect_filled(Rect::from_min_size(lr.min, vec2(lr.width(), (lr.height() * 0.08).max(2.0))), CornerRadius::ZERO, Color32::from_rgb(80, 82, 90));
             }

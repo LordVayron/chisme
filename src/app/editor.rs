@@ -197,6 +197,7 @@ impl App {
             Source::Screen if self.status.content.0 > 0 => ratio(self.status.content),
             Source::Camera => self.status.cam.as_ref().map_or(16.0 / 9.0, |c| ratio(c.1)),
             Source::Image => l.image.as_deref().and_then(|p| image::image_dimensions(p).ok()).map_or(1.0, ratio),
+            Source::Window => window_aspect(&l.window, &l.window_app),
             _ => 16.0 / 9.0,
         }
     }
@@ -828,6 +829,9 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                     let (w, h) = if a > 1.0 { (0.5, 0.5 / a) } else { (0.5 * a, 0.5) };
                     added = Some(Layer { source: Source::Screen, rect: [(1.0 - w) / 2.0, (1.0 - h) / 2.0, w, h], fill: false, ..Default::default() });
                 }
+                if let Some(l) = window_menu(ui, tr("+ Window", "+ Ventana"), ow / oh) {
+                    added = Some(l);
+                }
                 if ui.add_enabled(has_cam, egui::Button::new(tr("+ Camera", "+ Cámara"))).on_disabled_hover_text(tr("Pick a camera in Settings", "Elige una cámara en Ajustes")).clicked() {
                     added = Some(layout::new_camera(&pip, ow, oh, cam_aspect));
                 }
@@ -952,6 +956,13 @@ pub fn layers_card(app: &mut App, ui: &mut Ui, card: Rect) {
                                 changed |= ui.selectable_value(&mut l.guest, s, format!("{}", s + 1)).on_hover_text(tr("Who was brought on stage 1st, 2nd…", "Quién subió 1.º, 2.º…")).changed();
                             }
                         });
+                    }
+                    Source::Window => {
+                        if let Some(w) = window_menu(ui, tr("Change window…", "Cambiar ventana…"), ow / oh) {
+                            l.window = w.window;
+                            l.window_app = w.window_app;
+                            changed = true;
+                        }
                     }
                     Source::Image => {
                         if ui.button(tr("Change image…", "Cambiar imagen…")).clicked()
@@ -1204,6 +1215,54 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tip: &str) -> bool {
 }
 
 /// Windows' file picker for a picture.
+/// A Window layer's picture shape, looked up at most once a second.
+fn window_aspect(title: &str, app: &str) -> f64 {
+    thread_local! {
+        static CACHE: std::cell::RefCell<Vec<(String, String, f64, f64)>> = const { std::cell::RefCell::new(vec![]) };
+    }
+    let t = crate::win::now();
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some(e) = c.iter().find(|e| e.0 == title && e.1 == app && t - e.3 < 1.0) {
+            return e.2;
+        }
+        let a = crate::win::sources::match_window(title, app)
+            .and_then(|w| crate::win::sources::frame_size(w.hwnd.0 as usize))
+            .filter(|s| s.0 > 0 && s.1 > 0)
+            .map_or(16.0 / 9.0, |s| s.0 as f64 / s.1 as f64);
+        c.retain(|e| !(e.0 == title && e.1 == app));
+        c.push((title.to_string(), app.to_string(), a, t));
+        a
+    })
+}
+
+/// A button that lists the open windows; picking one gives a Window layer
+/// in the middle of the frame (`frame_aspect`: width / height).
+fn window_menu(ui: &mut Ui, label: &str, frame_aspect: f64) -> Option<Layer> {
+    let mut picked = None;
+    ui.menu_button(label, |ui| {
+        let list = crate::win::sources::app_windows();
+        if list.is_empty() {
+            ui.label(egui::RichText::new(tr("No open windows", "No hay ventanas abiertas")).color(FAINT).size(12.0));
+        }
+        egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+            for (w, app) in list {
+                let text = if app.is_empty() { super::media_ui::truncate(&w.title, 56) } else { format!("{}  ·  {app}", super::media_ui::truncate(&w.title, 48)) };
+                if ui.button(text).clicked() {
+                    let size = crate::win::sources::frame_size(w.hwnd.0 as usize).filter(|s| s.0 > 0 && s.1 > 0).unwrap_or((16, 9));
+                    let a = size.0 as f64 / size.1 as f64 / frame_aspect;
+                    let (bw, bh) = if a > 1.0 { (0.6, 0.6 / a) } else { (0.6 * a, 0.6) };
+                    picked = Some(Layer { source: Source::Window, window: w.title, window_app: app, rect: [(1.0 - bw) / 2.0, (1.0 - bh) / 2.0, bw, bh], fill: false, ..Default::default() });
+                    ui.close();
+                }
+            }
+        });
+    })
+    .response
+    .on_hover_text(tr("Show one app's window instead of the whole screen", "Muestra la ventana de una app en vez de toda la pantalla"));
+    picked
+}
+
 pub fn pick_image() -> Option<std::path::PathBuf> {
     rfd::FileDialog::new().set_title(tr("Choose an image", "Elige una imagen")).add_filter(tr("Image", "Imagen"), &["png", "jpg", "jpeg"]).pick_file()
 }

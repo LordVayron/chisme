@@ -18,6 +18,8 @@ pub enum Source {
     Text,
     /// A guest on stage (Layer::guest: 0 = first one brought on).
     Guest,
+    /// One app's window, captured on its own (Layer::window: its title).
+    Window,
 }
 
 impl Source {
@@ -28,6 +30,7 @@ impl Source {
             Source::Image => crate::i18n::l("Image", "Imagen"),
             Source::Text => crate::i18n::l("Text", "Texto"),
             Source::Guest => crate::i18n::l("Guest", "Invitado"),
+            Source::Window => crate::i18n::l("Window", "Ventana"),
         }
     }
 }
@@ -57,6 +60,10 @@ pub struct Layer {
     pub style: u8,
     /// Guest layers: which seat on stage.
     pub guest: u8,
+    /// Window layers: the window's title and its app (to find it again
+    /// when the title changes).
+    pub window: String,
+    pub window_app: String,
     /// The part of the picture shown (x, y, w, h as fractions of it).
     pub crop: [f64; 4],
     /// 0 (invisible) to 1.
@@ -83,6 +90,8 @@ impl Default for Layer {
             subtitle: String::new(),
             style: 1,
             guest: 0,
+            window: String::new(),
+            window_app: String::new(),
             crop: [0.0, 0.0, 1.0, 1.0],
             opacity: 1.0,
             rotation: 0.0,
@@ -111,6 +120,7 @@ impl Layer {
                 format!("{} · {}", Source::Image.label(), f.unwrap_or_default())
             }
             Source::Text => format!("{} · {}", Source::Text.label(), self.text),
+            Source::Window => format!("{} · {}", Source::Window.label(), self.window),
             s => format!("{}  {}", s.label(), if self.fill { crate::i18n::l("· fill", "· llenar") } else { crate::i18n::l("· fit", "· ajustar") }),
         }
     }
