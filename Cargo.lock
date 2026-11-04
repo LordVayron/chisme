@@ -3215,9 +3215,9 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99ac4371b49e2b7267b1f5f0550c1e01cfc8a1453f69eb4ea0d6b21e78f6ebe0"
+checksum = "d23c1fcba4837f75f9e3596c60527dac6f0eec2f660118ef65c5b0da0488bbeb"
 dependencies = [
  "http",
  "livekit-protocol",
@@ -3303,9 +3303,9 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39029b01173f266fbb60a7f546616cef882427e32452594030868df585970024"
+checksum = "1329f59d49f876eb15aae91b1a6bb72b8d75ea4f9eceba606191af468c2c231d"
 dependencies = [
  "pbjson",
  "pbjson-types",
@@ -3365,9 +3365,9 @@ dependencies = [
 
 [[package]]
 name = "livekit-token"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f31ff62dcf1fe214806289b544ea136fc24e227544e6c487d85dc69257f162e9"
+checksum = "ce13289c46aab01eb50e29ca98544c703101b02a0d0a4caae416a441ee631c9b"
 dependencies = [
  "hmac",
  "jsonwebtoken",
