@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- YouTube chat shows up without a Google API key: Chisme reads the stream's public live chat, the same one YouTube's pop-out chat shows. A saved API key is still used when there is one.
+- Chat channel fields accept what you paste: a name, `@name`, `#name` or a link like `twitch.tv/name` or `youtube.com/@name`. A pasted Twitch or Kick link used to join a channel that doesn't exist and show no messages.
+
 ## [0.8.0] - 2026-11-03
 
 ### Added

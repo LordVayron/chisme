@@ -146,11 +146,11 @@ impl Chat {
                 }
             });
         };
-        let t = config.twitch.trim().trim_start_matches('#').to_lowercase();
+        let t = channel_name(&config.twitch);
         if !t.is_empty() {
             spawn(Platform::Twitch, Box::new(move |feed, stop| twitch(&t, feed, stop)));
         }
-        let k = config.kick.trim().to_lowercase();
+        let k = channel_name(&config.kick);
         if !k.is_empty() {
             spawn(Platform::Kick, Box::new(move |feed, stop| kick(&k, feed, stop)));
         }
@@ -161,6 +161,19 @@ impl Chat {
         }
         Chat { feed, stop, config }
     }
+}
+
+/// A Twitch or Kick channel from what was typed: a name, `#name`, `@name`
+/// or a link like `https://www.twitch.tv/name/videos`.
+pub fn channel_name(input: &str) -> String {
+    let s = input.trim();
+    let s = s.split_once("://").map_or(s, |(_, r)| r);
+    let s = match s.split_once('/') {
+        Some((host, rest)) if host.contains('.') => rest,
+        _ => s,
+    };
+    let s = s.split(['/', '?', '#']).find(|p| !p.is_empty()).unwrap_or("");
+    s.trim_start_matches(['#', '@']).to_lowercase()
 }
 
 fn connect(url: &str) -> Result<WebSocket<MaybeTlsStream<TcpStream>>> {
@@ -352,7 +365,11 @@ pub fn parse_youtube(input: &str) -> Option<YtTarget> {
     if s.starts_with("UC") && s.len() == 24 {
         return Some(YtTarget::Channel(s.to_string()));
     }
-    (s.len() == 11 && !s.contains(' ')).then(|| YtTarget::Video(s.to_string()))
+    if s.contains(' ') || s.contains('/') {
+        return None;
+    }
+    // An 11-character ID is a video; any other bare name is a handle.
+    Some(if s.len() == 11 { YtTarget::Video(s.to_string()) } else { YtTarget::Handle(format!("@{s}")) })
 }
 
 fn yt_get(path: &str, key: &str) -> Result<serde_json::Value> {
@@ -369,7 +386,7 @@ fn yt_get(path: &str, key: &str) -> Result<serde_json::Value> {
 
 fn youtube(input: &str, key: &str, feed: &Arc<Mutex<Feed>>, stop: &AtomicBool) -> Result<()> {
     if key.trim().is_empty() {
-        bail!(crate::i18n::l("add your YouTube API key", "agrega tu llave de la API de YouTube"));
+        return youtube_web(input, feed, stop);
     }
     let target = parse_youtube(input).ok_or_else(|| anyhow!(crate::i18n::l("paste the live video link or the channel", "pega el link del en vivo o del canal")))?;
     let channel = match &target {
@@ -421,6 +438,122 @@ fn youtube(input: &str, key: &str, feed: &Arc<Mutex<Feed>>, stop: &AtomicBool) -
     Ok(())
 }
 
+// ---- YouTube without a key ----
+//
+// The same public chat page youtube.com shows in its pop-out chat: read the
+// page once for its first page token, then ask for new messages.
+
+const YT_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+
+fn yt_page(url: &str) -> Result<String> {
+    let mut resp = ureq::get(url)
+        .header("User-Agent", YT_UA)
+        .header("Accept-Language", "en-US,en;q=0.9")
+        // Skips the cookie consent page shown in some countries.
+        .header("Cookie", "CONSENT=YES+1; SOCS=CAI")
+        .call()
+        .with_context(|| format!("YouTube ({})", url.split('?').next().unwrap_or(url)))?;
+    Ok(resp.body_mut().with_config().limit(16 << 20).read_to_string()?)
+}
+
+/// The text after `key` up to the next `"`.
+fn quoted_after<'a>(page: &'a str, key: &str) -> Option<&'a str> {
+    let i = page.find(key)? + key.len();
+    let rest = &page[i..];
+    Some(&rest[..rest.find('"')?])
+}
+
+/// The live video on a channel page (`/@handle/live`, `/channel/UC…/live`).
+pub fn yt_live_video(page: &str) -> Option<String> {
+    let id = quoted_after(page, "<link rel=\"canonical\" href=\"https://www.youtube.com/watch?v=")?;
+    (id.len() == 11).then(|| id.to_string())
+}
+
+/// A chat page's first token and the web client's version.
+pub fn yt_chat_start(page: &str) -> Option<(String, String)> {
+    let token = quoted_after(page, "\"continuation\":\"")?.to_string();
+    let version = quoted_after(page, "\"INNERTUBE_CONTEXT_CLIENT_VERSION\":\"").or_else(|| quoted_after(page, "\"clientVersion\":\"")).unwrap_or("2.20241101.00.00");
+    Some((token, version.to_string()))
+}
+
+/// Text of a "runs" message (emojis become their shortcut or character).
+fn yt_runs(v: &serde_json::Value) -> String {
+    let mut out = String::new();
+    for r in v["runs"].as_array().into_iter().flatten() {
+        if let Some(t) = r["text"].as_str() {
+            out.push_str(t);
+        } else if let Some(e) = r["emoji"]["shortcuts"][0].as_str().or_else(|| r["emoji"]["emojiId"].as_str()) {
+            out.push_str(e);
+        }
+    }
+    out
+}
+
+/// One answer → (messages as (name, text), next token, wait in ms).
+pub fn yt_chat_page(v: &serde_json::Value) -> (Vec<(String, String)>, Option<String>, u64) {
+    let c = &v["continuationContents"]["liveChatContinuation"];
+    let mut msgs = Vec::new();
+    for a in c["actions"].as_array().into_iter().flatten() {
+        let it = &a["addChatItemAction"]["item"];
+        let r = if it["liveChatTextMessageRenderer"].is_object() { &it["liveChatTextMessageRenderer"] } else { &it["liveChatPaidMessageRenderer"] };
+        let text = yt_runs(&r["message"]);
+        let name = r["authorName"]["simpleText"].as_str().unwrap_or("").to_string();
+        if !text.is_empty() {
+            msgs.push((name, text));
+        }
+    }
+    let next = c["continuations"].as_array().into_iter().flatten().find_map(|k| {
+        ["invalidationContinuationData", "timedContinuationData", "reloadContinuationData"].iter().find_map(|n| {
+            let d = &k[*n];
+            d["continuation"].as_str().map(|t| (t.to_string(), d["timeoutMs"].as_u64().unwrap_or(3000)))
+        })
+    });
+    match next {
+        Some((t, ms)) => (msgs, Some(t), ms),
+        None => (msgs, None, 3000),
+    }
+}
+
+fn youtube_web(input: &str, feed: &Arc<Mutex<Feed>>, stop: &AtomicBool) -> Result<()> {
+    let target = parse_youtube(input).ok_or_else(|| anyhow!(crate::i18n::l("paste the live video link or the channel", "pega el link del en vivo o del canal")))?;
+    let video = match &target {
+        YtTarget::Video(v) => Some(v.clone()),
+        YtTarget::Handle(h) => yt_live_video(&yt_page(&format!("https://www.youtube.com/{h}/live"))?),
+        YtTarget::Channel(c) => yt_live_video(&yt_page(&format!("https://www.youtube.com/channel/{c}/live"))?),
+    }
+    .ok_or_else(|| anyhow!(crate::i18n::l("the channel isn't live yet", "el canal aún no está en vivo")))?;
+    let page = yt_page(&format!("https://www.youtube.com/live_chat?is_popout=1&v={video}"))?;
+    let (mut token, version) = yt_chat_start(&page).ok_or_else(|| anyhow!(crate::i18n::l("that video has no live chat now", "ese video no tiene chat en vivo ahora")))?;
+    feed.lock().unwrap().state(Platform::YouTube, video.clone());
+    let mut first = true;
+    while !stop.load(Ordering::Relaxed) {
+        let body = serde_json::json!({ "context": { "client": { "clientName": "WEB", "clientVersion": version, "hl": "en" } }, "continuation": token });
+        let mut resp = ureq::post("https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?prettyPrint=false")
+            .header("User-Agent", YT_UA)
+            .header("Content-Type", "application/json")
+            .send(body.to_string())
+            .context("YouTube chat")?;
+        let v: serde_json::Value = serde_json::from_str(&resp.body_mut().with_config().limit(16 << 20).read_to_string()?).context("YouTube's answer")?;
+        let (msgs, next, wait) = yt_chat_page(&v);
+        // On the first answer, only the last few (not the whole history).
+        let skip = if first { msgs.len().saturating_sub(10) } else { 0 };
+        first = false;
+        {
+            let mut f = feed.lock().unwrap();
+            for (name, text) in msgs.into_iter().skip(skip) {
+                f.push(Platform::YouTube, name, text, None);
+            }
+        }
+        let Some(next) = next else { bail!(crate::i18n::l("the live chat ended", "el chat en vivo terminó")) };
+        token = next;
+        let until = Instant::now() + Duration::from_millis(wait.clamp(1000, 10000));
+        while Instant::now() < until && !stop.load(Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -432,6 +565,24 @@ mod tests {
         assert_eq!(parse_twitch(":tmi.twitch.tv 001 justinfan1 :Welcome"), None);
         let me = "@color=;display-name=X :x!x@example.com PRIVMSG #c :\u{1}ACTION waves\u{1}";
         assert_eq!(parse_twitch(me).unwrap().2, "waves");
+    }
+
+    #[test]
+    fn channel_names() {
+        for s in ["LordVayron", "#lordvayron", "@LordVayron", " https://www.twitch.tv/LordVayron ", "twitch.tv/lordvayron/videos", "https://kick.com/lordvayron?x=1"] {
+            assert_eq!(channel_name(s), "lordvayron", "{s}");
+        }
+        assert_eq!(channel_name(""), "");
+    }
+
+    #[test]
+    fn youtube_web_pages() {
+        let page = r#"<link rel="canonical" href="https://www.youtube.com/watch?v=4t4AQ15yj1M"><script>"INNERTUBE_CONTEXT_CLIENT_VERSION":"2.20251101.01.00","continuation":"0ofMyAN"</script>"#;
+        assert_eq!(yt_live_video(page), Some("4t4AQ15yj1M".into()));
+        assert_eq!(yt_chat_start(page), Some(("0ofMyAN".into(), "2.20251101.01.00".into())));
+        assert_eq!(yt_live_video(r#"<link rel="canonical" href="https://www.youtube.com/@LofiGirl">"#), None);
+        let v: serde_json::Value = serde_json::from_str(r#"{"continuationContents":{"liveChatContinuation":{"continuations":[{"invalidationContinuationData":{"continuation":"next","timeoutMs":5000}}],"actions":[{"addChatItemAction":{"item":{"liveChatTextMessageRenderer":{"authorName":{"simpleText":"@ana"},"message":{"runs":[{"text":"hola "},{"emoji":{"emojiId":"x","shortcuts":[":wave:"]}}]}}}}}]}}}"#).unwrap();
+        assert_eq!(yt_chat_page(&v), (vec![("@ana".to_string(), "hola :wave:".to_string())], Some("next".to_string()), 5000));
     }
 
     #[test]
@@ -448,6 +599,7 @@ mod tests {
         assert_eq!(parse_youtube("@LordVayron"), Some(YtTarget::Handle("@LordVayron".into())));
         assert_eq!(parse_youtube("https://www.youtube.com/@LordVayron/live"), Some(YtTarget::Handle("@LordVayron".into())));
         assert_eq!(parse_youtube("UCabcdefghijklmnopqrstuv"), Some(YtTarget::Channel("UCabcdefghijklmnopqrstuv".into())));
+        assert_eq!(parse_youtube("LordVayron"), Some(YtTarget::Handle("@LordVayron".into())));
     }
 }
 
@@ -455,11 +607,12 @@ mod tests {
 mod live_probe {
     use super::*;
 
-    /// T=twitch_channel K=kick_channel: print a few live messages.
+    /// T=twitch_channel K=kick_channel Y=youtube (no key): print a few live
+    /// messages.
     #[test]
     #[ignore]
     fn live_chat_probe() {
-        let c = Chat::start(Config { twitch: std::env::var("T").unwrap_or_default(), kick: std::env::var("K").unwrap_or_default(), youtube: String::new() }, None);
+        let c = Chat::start(Config { twitch: std::env::var("T").unwrap_or_default(), kick: std::env::var("K").unwrap_or_default(), youtube: std::env::var("Y").unwrap_or_default() }, None);
         for _ in 0..45 {
             std::thread::sleep(Duration::from_secs(1));
             if c.feed.lock().unwrap().msgs.len() >= 4 {
