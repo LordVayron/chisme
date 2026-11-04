@@ -5,6 +5,16 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-03
+
+### Added
+- Window layers: **+ Window** in the Layers card lists your open windows and adds just that app as a layer, next to or instead of the screen. Move, resize, crop and round it like any layer; "Change window…" swaps it. If the window's title changes (a browser switching tabs), Chisme finds the same app's window again, and a window you make bigger is re-captured at its new size.
+- Going live arranges the Studio for it: Live audio and Tutorial mode open at the top, and the Layers card folds. While live, the Tutorial mode card shows just its switches and shortcuts. When the stream ends, the cards go back as they were.
+
+### Changed
+- The Pause and Hold shortcuts in the Tutorial mode card are buttons now: click one and press the new keys (Esc cancels, Backspace turns it off). It's the same setting as Settings → Shortcuts.
+- Custom-drawn buttons like Go live and Record now have their names for screen readers.
+
 ## [0.7.2] - 2026-10-27
 
 ### Added

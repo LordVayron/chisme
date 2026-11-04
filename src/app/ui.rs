@@ -59,6 +59,7 @@ fn text(p: &egui::Painter, pos: Pos2, align: Align2, s: impl ToString, font: egu
 /// A rounded button drawn by hand. Returns its response.
 fn pill(ui: &mut Ui, rect: Rect, id: &str, label: &str, fill: Color32, color: Color32, font: egui::FontId) -> Response {
     let r = ui.interact(rect, Id::new(id), Sense::click());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     let fill = if r.hovered() { fill.gamma_multiply(if fill.r() > 200 { 0.88 } else { 1.6 }) } else { fill };
     ui.painter().rect_filled(rect, CornerRadius::same((rect.height() / 2.0).min(127.0) as u8), fill);
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, font, color);
