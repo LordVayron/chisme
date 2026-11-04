@@ -1026,9 +1026,7 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         // Hidden from capture only while recording or streaming, and only
-        // when Chisme sits on the captured screen: on some PCs the hidden
-        // window is drawn offset from where clicks land, so a Chisme on
-        // another monitor stays normal and its buttons work.
+        // when that can't break its buttons (see `on_captured_screen`).
         let on_capture = self.on_captured_screen(frame);
         let hide = !self.settings.show_self && self.busy() && on_capture && std::env::var_os("CHISME_SHOW_IN_CAPTURE").is_none();
         if self.excluded != Some(hide) {
@@ -1047,8 +1045,10 @@ impl eframe::App for App {
 }
 
 impl App {
-    /// Whether Chisme's window could show up in what's captured: it's on
-    /// the captured display, or a Window layer captures Chisme itself.
+    /// Whether Chisme should hide itself from the capture: only with more
+    /// than one monitor and its window on the captured one. With a single
+    /// monitor it never hides, because on some PCs the hidden window is
+    /// drawn offset from where clicks land and the buttons would miss.
     /// Looked up at most once a second (the window may be moved).
     fn on_captured_screen(&mut self, frame: &eframe::Frame) -> bool {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -1057,12 +1057,11 @@ impl App {
         {
             return v;
         }
-        let own = self.settings.layout.as_ref().is_some_and(|l| l.layers.iter().any(|y| y.source == crate::layout::Source::Window && y.window.trim().eq_ignore_ascii_case("Chisme")));
-        let v = own
-            || match (&self.settings.window, frame.window_handle().map(|h| h.as_raw())) {
-                (Some(_), _) => false,
-                (None, Ok(RawWindowHandle::Win32(w))) => crate::win::sources::window_on_display(w.hwnd.get(), self.settings.display),
-                (None, _) => true,
+        let v = self.settings.window.is_none()
+            && crate::win::sources::displays().len() > 1
+            && match frame.window_handle().map(|h| h.as_raw()) {
+                Ok(RawWindowHandle::Win32(w)) => crate::win::sources::window_on_display(w.hwnd.get(), self.settings.display),
+                _ => true,
             };
         self.capture_check = Some((std::time::Instant::now(), v));
         v
