@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Buttons work while recording or live. On some PCs, hiding Chisme from the capture drew its window offset from where clicks land. With one monitor, Chisme no longer hides itself (like other streaming apps, it shows in a capture of that screen when it's in front). With two or more, it hides only when its window is on the captured screen, so keep it on the other monitor. "Show Chisme in recordings" still turns hiding off everywhere.
+
 ## [0.8.0] - 2026-11-03
 
 ### Added

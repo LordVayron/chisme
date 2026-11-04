@@ -142,6 +142,8 @@ pub struct App {
     quitting: bool,
     /// Whether the window is currently hidden from captures.
     excluded: Option<bool>,
+    /// When `on_captured_screen` last looked, and what it found.
+    capture_check: Option<(std::time::Instant, bool)>,
     /// Stream keys being typed (loaded from Credential Manager).
     pub keys: Vec<(Platform, String)>,
     last_notices: u64,
@@ -299,6 +301,7 @@ impl App {
             hidden: false,
             quitting: false,
             excluded: None,
+            capture_check: None,
             keys,
             last_notices: 0,
             job: Default::default(),
@@ -1022,9 +1025,10 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        // Hidden from capture only while recording or streaming: on some PCs
-        // the hidden window is drawn offset from where clicks land.
-        let hide = !self.settings.show_self && self.busy() && std::env::var_os("CHISME_SHOW_IN_CAPTURE").is_none();
+        // Hidden from capture only while recording or streaming, and only
+        // when that can't break its buttons (see `on_captured_screen`).
+        let on_capture = self.on_captured_screen(frame);
+        let hide = !self.settings.show_self && self.busy() && on_capture && std::env::var_os("CHISME_SHOW_IN_CAPTURE").is_none();
         if self.excluded != Some(hide) {
             self.excluded = Some(hide);
             exclude_from_capture(frame, hide);
@@ -1037,6 +1041,30 @@ impl eframe::App for App {
     /// window paints its own background).
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0; 4]
+    }
+}
+
+impl App {
+    /// Whether Chisme should hide itself from the capture: only with more
+    /// than one monitor and its window on the captured one. With a single
+    /// monitor it never hides, because on some PCs the hidden window is
+    /// drawn offset from where clicks land and the buttons would miss.
+    /// Looked up at most once a second (the window may be moved).
+    fn on_captured_screen(&mut self, frame: &eframe::Frame) -> bool {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if let Some((t, v)) = self.capture_check
+            && t.elapsed() < Duration::from_secs(1)
+        {
+            return v;
+        }
+        let v = self.settings.window.is_none()
+            && crate::win::sources::displays().len() > 1
+            && match frame.window_handle().map(|h| h.as_raw()) {
+                Ok(RawWindowHandle::Win32(w)) => crate::win::sources::window_on_display(w.hwnd.get(), self.settings.display),
+                _ => true,
+            };
+        self.capture_check = Some((std::time::Instant::now(), v));
+        v
     }
 }
 

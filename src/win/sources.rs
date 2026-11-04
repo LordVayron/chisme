@@ -44,6 +44,19 @@ pub fn displays() -> Vec<Display> {
     out
 }
 
+/// Whether any part of window `hwnd` is on display `n` (1-based, primary
+/// first, as in `displays()`). True when unsure, so callers stay safe.
+pub fn window_on_display(hwnd: isize, n: usize) -> bool {
+    let Some(d) = n.checked_sub(1).and_then(|i| displays().into_iter().nth(i)) else { return true };
+    let mut r = RECT::default();
+    let ok = unsafe { DwmGetWindowAttribute(HWND(hwnd as _), DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut _ as *mut c_void, size_of::<RECT>() as u32) }.is_ok();
+    if !ok {
+        return true;
+    }
+    let m = d.rect;
+    r.left < m.right && r.right > m.left && r.top < m.bottom && r.bottom > m.top
+}
+
 pub struct Window {
     pub hwnd: HWND,
     pub title: String,
