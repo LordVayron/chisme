@@ -126,16 +126,16 @@ fn setup(app: &mut App, ui: &mut Ui, inner: Rect) {
                 ui.label(egui::RichText::new(label).color(MUTED).size(12.5));
                 ui.add(egui::TextEdit::singleline(v).hint_text(hint).desired_width(w));
             };
-            field(ui, "Twitch", &mut app.settings.chat.twitch, l("channel name", "nombre del canal"));
-            field(ui, "Kick", &mut app.settings.chat.kick, l("channel name", "nombre del canal"));
+            field(ui, "Twitch", &mut app.settings.chat.twitch, l("channel name or link", "nombre o link del canal"));
+            field(ui, "Kick", &mut app.settings.chat.kick, l("channel name or link", "nombre o link del canal"));
             field(ui, "YouTube", &mut app.settings.chat.youtube, l("live link, @handle or channel ID", "link del en vivo, @usuario o ID del canal"));
             let has_key = crate::win::creds::get(YT_KEY).is_some();
-            ui.label(egui::RichText::new(if has_key { l("YouTube API key (saved)", "Llave de la API de YouTube (guardada)") } else { l("YouTube API key", "Llave de la API de YouTube") }).color(MUTED).size(12.5));
+            ui.label(egui::RichText::new(if has_key { l("YouTube API key (saved, optional)", "Llave de la API de YouTube (guardada, opcional)") } else { l("YouTube API key (optional)", "Llave de la API de YouTube (opcional)") }).color(MUTED).size(12.5));
             ui.add(egui::TextEdit::singleline(&mut app.chat_key).password(true).hint_text(if has_key { l("leave empty to keep it", "déjala vacía para conservarla") } else { "AIza…" }).desired_width(w));
             ui.label(
                 egui::RichText::new(l(
-                    "Get a free key: console.cloud.google.com → new project → enable \"YouTube Data API v3\" → Credentials → Create API key. It's kept in Windows Credential Manager.",
-                    "Llave gratis: console.cloud.google.com → proyecto nuevo → habilita \"YouTube Data API v3\" → Credenciales → Crear llave de API. Se guarda en el Administrador de credenciales de Windows.",
+                    "YouTube chat works without a key. To use Google's official API instead: console.cloud.google.com → new project → enable \"YouTube Data API v3\" → Credentials → Create API key. It's kept in Windows Credential Manager.",
+                    "El chat de YouTube funciona sin llave. Para usar la API oficial de Google: console.cloud.google.com → proyecto nuevo → habilita \"YouTube Data API v3\" → Credenciales → Crear llave de API. Se guarda en el Administrador de credenciales de Windows.",
                 ))
                 .color(FAINT)
                 .size(11.0),
