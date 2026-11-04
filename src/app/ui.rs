@@ -2179,39 +2179,46 @@ fn brand_section(app: &mut App, ui: &mut Ui, rect: Rect) {
     });
 }
 
-/// Shortcuts: click a combo, press the new keys (Esc cancels, Backspace
-/// turns it off). The numbered ones pick a modifier set.
-fn shortcuts_section(app: &mut App, ui: &mut Ui, rect: Rect) {
-    use super::hotkeys::{Action, GROUP_MODS, from_egui, used_by};
-    // A combo being typed.
-    if let Some(a) = app.capturing {
-        let pressed = ui.input(|i| {
-            i.events.iter().find_map(|e| match e {
-                egui::Event::Key { key, pressed: true, modifiers, .. } => Some((*key, *modifiers)),
-                _ => None,
-            })
-        });
-        if let Some((key, mods)) = pressed {
-            match key {
-                egui::Key::Escape => app.capturing = None,
-                egui::Key::Backspace | egui::Key::Delete if mods.is_none() => {
-                    a.slot(&mut app.settings.hotkeys).clear();
-                    app.capturing = None;
-                }
-                _ => {
-                    if let Some(combo) = from_egui(key, mods) {
-                        match used_by(&app.settings.hotkeys, &combo, a) {
-                            Some(other) => app.toast(t!("{} is already used by “{}”", "{} ya lo usa “{}”", combo, other.label())),
-                            None => {
-                                *a.slot(&mut app.settings.hotkeys) = combo;
-                                app.capturing = None;
-                            }
+/// While a shortcut is being set (`app.capturing`), take the next keys:
+/// Esc cancels, Backspace turns it off, a combo in use is refused.
+pub(super) fn capture_shortcut(app: &mut App, ui: &mut Ui) {
+    use super::hotkeys::{from_egui, used_by};
+    let Some(a) = app.capturing else { return };
+    let pressed = ui.input(|i| {
+        i.events.iter().find_map(|e| match e {
+            egui::Event::Key { key, pressed: true, modifiers, .. } => Some((*key, *modifiers)),
+            _ => None,
+        })
+    });
+    if let Some((key, mods)) = pressed {
+        match key {
+            egui::Key::Escape => app.capturing = None,
+            egui::Key::Backspace | egui::Key::Delete if mods.is_none() => {
+                a.slot(&mut app.settings.hotkeys).clear();
+                app.capturing = None;
+                let _ = app.settings.save();
+            }
+            _ => {
+                if let Some(combo) = from_egui(key, mods) {
+                    match used_by(&app.settings.hotkeys, &combo, a) {
+                        Some(other) => app.toast(t!("{} is already used by “{}”", "{} ya lo usa “{}”", combo, other.label())),
+                        None => {
+                            *a.slot(&mut app.settings.hotkeys) = combo;
+                            app.capturing = None;
+                            let _ = app.settings.save();
                         }
                     }
                 }
             }
         }
     }
+}
+
+/// Shortcuts: click a combo, press the new keys (Esc cancels, Backspace
+/// turns it off). The numbered ones pick a modifier set.
+fn shortcuts_section(app: &mut App, ui: &mut Ui, rect: Rect) {
+    use super::hotkeys::{Action, GROUP_MODS};
+    capture_shortcut(app, ui);
     section(ui, rect, l("Shortcuts", "Atajos"), |ui| {
         ui.label(
             egui::RichText::new(l(

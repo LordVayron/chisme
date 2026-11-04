@@ -99,6 +99,8 @@ the recording, the stream or both:
   itself, gliding toward the real position.
 - **Shortcut banner:** shows combinations with Ctrl, Alt or Win (plus Shift) near the bottom. Keys
   pressed without them only count as "typing" for the zoom; their names are never kept or shown.
+- **Pause and Hold shortcuts:** click the shortcut next to Pause or Hold in the card and press the
+  new keys (Esc cancels, Backspace turns it off). It's the same setting as Settings → Shortcuts.
 
 How it works: `win/input.rs` watches the mouse and keyboard on a worker thread (cursor position
 and picture, button and key state), as fractions of the captured display or window. `tutorial.rs`
@@ -184,11 +186,17 @@ editable layers (`src/layout.rs`).
   - Shift keeps the proportions.
   - Orange guides snap to the frame's edges and center, and to other layers.
 - **The Layers card:**
-  - Add a screen or camera layer, show or hide it, change its order, delete it.
+  - Add a screen, window or camera layer, show or hide it, change its order, delete it.
   - Set the background color.
   - Per layer: fill (crop) or fit, shape, roundness, border and its color, shadow, mirror.
 - **How screen layers draw:** the video processor scales the screen to the layer's size first,
   which keeps text sharp. The same shader as the camera then adds the shape, border and shadow.
+- **Window layers:** **+ Window** lists the open windows; the layer shows just that app, next to
+  or instead of the screen. Each one is its own Windows.Graphics.Capture session, started while a
+  visible layer names it and stopped when none does. The layer keeps the window's title and app:
+  if the title changes (a browser switching tabs), it finds the app's window again. A window that
+  grows restarts its capture at the new size. A minimized window shows its last frame, and auto
+  zoom and click effects apply to the Screen layer only.
 - **Saving:** layouts are saved in settings and change live while recording or streaming.
 - **From the terminal:** `chisme record --layout file.json` uses a layout saved as JSON.
 

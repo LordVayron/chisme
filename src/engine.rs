@@ -842,6 +842,9 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
     // Tutorial mode: the mouse and keyboard watcher (while it's on), its
     // motion, and whether the capture draws the system cursor.
     let mut tracker: Option<Tracker> = None;
+    // Windows shown by Window layers, each captured on its own.
+    let mut wins: Vec<WinCap> = vec![];
+    let mut wins_checked = f64::MIN;
     let mut tut_state = crate::tutorial::State::default();
     let mut cap_cursor = cfg.cursor;
     let mut live_mix: Option<Mixer> = None;
@@ -1293,6 +1296,13 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                 let scene = if cam.is_some() { live.scene } else { Scene::Screen };
                 let switched = live.switch != last_switch;
                 last_switch = live.switch;
+                // Window layers: check every second, sooner for a new one.
+                let want_wins = window_layers(live.layout.as_ref(), &live.vertical, need_v);
+                let missing = want_wins.iter().any(|k| !wins.iter().any(|w| &w.key == k));
+                if t - wins_checked > 1.0 || (missing && t - wins_checked > 0.2) || (want_wins.len() < wins.len()) {
+                    wins_checked = t;
+                    sync_windows(&gpu, &mut wins, &want_wins, cfg.cursor, cfg.fps);
+                }
                 let (tex, tex_v) = gpu.locked(|| -> Result<(Option<ID3D11Texture2D>, Option<ID3D11Texture2D>)> {
                     // A new scene: keep the last frame of the old one to blend from.
                     if switched {
@@ -1331,7 +1341,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                             let v = if (mid..mid + 3).contains(&(slot % cfg.fps as i64)) { 1.0 } else { 0.08 };
                             unsafe { gpu.context.ClearRenderTargetView(&pipe.canvas_rtv, &[v, v, v, 1.0]) };
                         } else if let Some(layout) = &live.layout {
-                            render_layout(&gpu, &mut pipe, &cap, info.content, cam.as_ref().filter(|_| cam_ready), layout, &live.brand, out, &tut)?;
+                            render_layout(&gpu, &mut pipe, &cap, &mut wins, info.content, cam.as_ref().filter(|_| cam_ready), layout, &live.brand, out, &tut)?;
                         } else {
                             // The screen fitted inside `area` (x, y, w, h).
                             let place = |area: [f64; 4]| {
@@ -1393,7 +1403,7 @@ fn engine(cfg: Config, shared: &Shared, rx: &Receiver<Cmd>) -> Result<()> {
                                 let v = if (mid..mid + 3).contains(&(slot % cfg.fps as i64)) { 1.0 } else { 0.08 };
                                 pv.overlay.clear_to([v, v, v]);
                             } else {
-                                render_layout(&gpu, pv, &cap, info.content, cam.as_ref().filter(|_| cam_ready), &live.vertical, &live.brand, out_v, &tut)?;
+                                render_layout(&gpu, pv, &cap, &mut wins, info.content, cam.as_ref().filter(|_| cam_ready), &live.vertical, &live.brand, out_v, &tut)?;
                                 draw_media(&gpu, pv, &players, media_image.as_deref(), out_v)?;
                                 if let Some(pin) = &live.chat_pin {
                                     draw_chat(&gpu, pv, pin, &live.brand, out_v)?;
@@ -1705,7 +1715,7 @@ fn ring_picture(color: [u8; 3]) -> (u32, u32, Vec<u8>) {
 /// processor (sharp text), then drawn with its shape and border like the
 /// camera.
 #[allow(clippy::too_many_arguments)]
-fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u32), cam: Option<&Camera>, layout: &Layout, brand: &Brand, out: (u32, u32), tut: &Tut) -> Result<()> {
+fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, wins: &mut [WinCap], content: (u32, u32), cam: Option<&Camera>, layout: &Layout, brand: &Brand, out: (u32, u32), tut: &Tut) -> Result<()> {
     let bg = layout.background.map(|c| c as f32 / 255.0);
     pipe.overlay.clear_to(bg);
     if let Some(path) = &layout.background_image {
@@ -1730,29 +1740,21 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
                 // The crop happens in the scaler (sharp text), so the draw
                 // below shows the whole of what it made.
                 let sub = screen_src(content, fx.crop, tut);
-                let crop = if layer.fill {
-                    let c = crop_to((sub.2, sub.3), size.0 as f64 / size.1 as f64);
-                    (sub.0 + c.0, sub.1 + c.1, c.2, c.3)
-                } else {
-                    sub
-                };
-                let fx = crate::win::overlay::Fx { crop: [0.0, 0.0, 1.0, 1.0], ..fx };
-                let i = match pipe.layer_tex.iter().position(|t| t.0 == size) {
-                    Some(i) => i,
-                    None => {
-                        let tex = gpu.texture(size.0, size.1, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE)?;
-                        let srv = Overlay::srv_of(gpu, &tex)?;
-                        if pipe.layer_tex.len() >= 6 {
-                            pipe.layer_tex.remove(0);
-                        }
-                        pipe.layer_tex.push((size, tex, srv));
-                        pipe.layer_tex.len() - 1
-                    }
-                };
-                let (tex, srv) = (pipe.layer_tex[i].1.clone(), pipe.layer_tex[i].2.clone());
-                pipe.scale.blit_sized(&cap.latest, crop, &tex, size)?;
-                pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some([r[0], r[1], size.0 as f64, size.1 as f64]), &style, false, &fx)?;
+                let crop = draw_scaled(gpu, pipe, None, &cap.latest, sub, layer.fill, r, size, &style, &fx)?;
                 draw_pointer(gpu, pipe, tut, content, crop, (r[0] as u32, r[1] as u32, size.0, size.1))?;
+            }
+            LayerSource::Window => {
+                let Some(w) = wins.iter_mut().find(|w| w.key.0 == layer.window && w.key.1 == layer.window_app) else {
+                    continue;
+                };
+                let info = w.cap.info();
+                if info.seq == 0 {
+                    continue;
+                }
+                let r = if layer.fill { rect } else { fit_in(rect, cut(info.content)) };
+                let size = ((r[2] as u32).max(2) & !1, (r[3] as u32).max(2) & !1);
+                let sub = crop_px(info.content, fx.crop);
+                draw_scaled(gpu, pipe, Some(&mut w.scale), &w.cap.latest, sub, layer.fill, r, size, &style, &fx)?;
             }
             LayerSource::Camera => {
                 let (Some(c), Some(srv)) = (cam, pipe.overlay.cam()) else {
@@ -1794,6 +1796,111 @@ fn render_layout(gpu: &Gpu, pipe: &mut Pipeline, cap: &Capture, content: (u32, u
         }
     }
     Ok(())
+}
+
+/// Scale `sub` (x, y, w, h pixels) of a captured picture into a `size`
+/// texture (cut to its shape when `fill`), then draw it at `r` with the
+/// layer's style. `scale`: a window's own scaler (None: the screen's).
+/// Returns the part of the picture shown.
+#[allow(clippy::too_many_arguments)]
+fn draw_scaled(
+    gpu: &Gpu,
+    pipe: &mut Pipeline,
+    scale: Option<&mut Blitter>,
+    src: &ID3D11Texture2D,
+    sub: (u32, u32, u32, u32),
+    fill: bool,
+    r: [f64; 4],
+    size: (u32, u32),
+    style: &PipSpec,
+    fx: &crate::win::overlay::Fx,
+) -> Result<(u32, u32, u32, u32)> {
+    let crop = if fill {
+        let c = crop_to((sub.2, sub.3), size.0 as f64 / size.1 as f64);
+        (sub.0 + c.0, sub.1 + c.1, c.2, c.3)
+    } else {
+        sub
+    };
+    let fx = crate::win::overlay::Fx { crop: [0.0, 0.0, 1.0, 1.0], ..*fx };
+    let i = match pipe.layer_tex.iter().position(|t| t.0 == size) {
+        Some(i) => i,
+        None => {
+            let tex = gpu.texture(size.0, size.1, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE)?;
+            let srv = Overlay::srv_of(gpu, &tex)?;
+            if pipe.layer_tex.len() >= 6 {
+                pipe.layer_tex.remove(0);
+            }
+            pipe.layer_tex.push((size, tex, srv));
+            pipe.layer_tex.len() - 1
+        }
+    };
+    let (tex, srv) = (pipe.layer_tex[i].1.clone(), pipe.layer_tex[i].2.clone());
+    match scale {
+        Some(s) => s.blit_sized(src, crop, &tex, size)?,
+        None => pipe.scale.blit_sized(src, crop, &tex, size)?,
+    }
+    pipe.overlay.draw_texture_fx(&srv, size, [1.0, 1.0], Some([r[0], r[1], size.0 as f64, size.1 as f64]), style, false, &fx)?;
+    Ok(crop)
+}
+
+/// The `crop` (fractions) of a `content`-sized picture, in pixels.
+fn crop_px(content: (u32, u32), c: [f64; 4]) -> (u32, u32, u32, u32) {
+    let (w, h) = (content.0 as f64, content.1 as f64);
+    let (x, y) = ((c[0] * w).round().max(0.0) as u32, (c[1] * h).round().max(0.0) as u32);
+    let cw = ((c[2] * w).round() as u32).clamp(2, content.0.saturating_sub(x).max(2));
+    let ch = ((c[3] * h).round() as u32).clamp(2, content.1.saturating_sub(y).max(2));
+    (x, y, cw, ch)
+}
+
+/// A window shown by a Window layer, captured on its own.
+struct WinCap {
+    /// The layer's window title and app.
+    key: (String, String),
+    hwnd: usize,
+    cap: Capture,
+    scale: Blitter,
+}
+
+impl Drop for WinCap {
+    fn drop(&mut self) {
+        self.cap.stop();
+    }
+}
+
+/// The windows the visible Window layers show (title, app).
+fn window_layers(layout: Option<&Layout>, vertical: &Layout, with_vertical: bool) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = vec![];
+    let v = with_vertical.then_some(vertical);
+    for l in layout.into_iter().chain(v).flat_map(|l| l.layers.iter()) {
+        let k = (l.window.clone(), l.window_app.clone());
+        if l.visible && l.source == LayerSource::Window && !k.0.is_empty() && !out.contains(&k) {
+            out.push(k);
+        }
+    }
+    out
+}
+
+/// Capture the windows in `want`; stop the ones no longer shown, closed,
+/// or grown past their capture (which then restarts at the new size).
+fn sync_windows(gpu: &Gpu, wins: &mut Vec<WinCap>, want: &[(String, String)], cursor: bool, fps: u32) {
+    wins.retain(|w| {
+        let grown = crate::win::sources::frame_size(w.hwnd).is_some_and(|s| s.0 > w.cap.size.0 + 2 || s.1 > w.cap.size.1 + 2);
+        want.contains(&w.key) && crate::win::sources::alive(w.hwnd) && !grown
+    });
+    for k in want {
+        if wins.iter().any(|w| &w.key == k) {
+            continue;
+        }
+        let Some(found) = crate::win::sources::match_window(&k.0, &k.1) else { continue };
+        let hwnd = found.hwnd.0 as usize;
+        let started = Capture::start(gpu, Target::Window(found.hwnd), cursor).and_then(|cap| {
+            let scale = Blitter::new(gpu, cap.size, (1920, 1920), fps, false)?;
+            Ok(WinCap { key: k.clone(), hwnd, cap, scale })
+        });
+        if let Ok(w) = started {
+            wins.push(w);
+        }
+    }
 }
 
 /// The camera of the guest in stage seat `seat`, uploaded when it changes.

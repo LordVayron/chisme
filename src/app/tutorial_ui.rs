@@ -4,6 +4,7 @@
 use eframe::egui::{self, Color32, CursorIcon, Rect, ScrollArea, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 
 use super::App;
+use super::hotkeys::Action;
 use super::theme::{self, *};
 use super::ui::{FOLDED_H, combo, fold_title, toggle};
 use crate::i18n::l;
@@ -54,9 +55,14 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
     if folded {
         return;
     }
+    // A shortcut being set from this card.
+    if matches!(app.capturing, Some(Action::Zoom | Action::Hold)) {
+        super::ui::capture_shortcut(app, ui);
+    }
     let inner = Rect::from_min_max(pos2(card.left() + 22.0, card.top() + 54.0), pos2(card.right() - 22.0, card.bottom() - 14.0));
     let mut changed = false;
     let mut look = false;
+    let mut set_key = None;
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
         ScrollArea::vertical().id_salt("tutorial-card").max_height(inner.height()).auto_shrink([false; 2]).show(ui, |ui| {
             if !app.settings.tutorial.enabled {
@@ -64,8 +70,9 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
                 ui.add_space(4.0);
             }
             let brand = app.settings.brand.primary;
-            let zoom_key = app.settings.hotkeys.zoom.clone();
-            let hold_key = app.settings.hotkeys.hold.clone();
+            let capturing = app.capturing;
+            let key = |a: Action| (a.combo(&app.settings.hotkeys), capturing == Some(a));
+            let (zoom_key, hold_key) = (key(Action::Zoom), key(Action::Hold));
             let t = &mut app.settings.tutorial;
             changed |= part_row(ui, l("Click effects", "Efecto en clics"), l("A ring on each click", "Un anillo en cada clic"), &mut t.clicks, "tut-clicks");
             if t.clicks.on {
@@ -78,8 +85,16 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
             changed |= part_row(ui, l("Auto zoom", "Zoom automático"), l("Zooms in where you click or type, and back out when you stop", "Acerca donde haces clic o escribes, y se aleja cuando paras"), &mut t.zoom, "tut-zoom");
             if t.zoom.on {
                 changed |= slider_row(ui, l("Strength", "Intensidad"), &mut t.zoom_strength);
-                changed |= switch_row(ui, l("Pause", "Pausar"), &zoom_key, &mut t.zoom_paused, l("Clicks don't zoom while paused; the rest keeps working", "Los clics no acercan mientras está en pausa; lo demás sigue"));
-                changed |= switch_row(ui, l("Hold", "Fijar"), &hold_key, &mut t.zoom_held, l("Keeps the zoom still where it is (or zooms in at the cursor) until you release it", "Deja el zoom quieto donde está (o acerca en el cursor) hasta que lo sueltes"));
+                let (c, k) = switch_row(ui, l("Pause", "Pausar"), &zoom_key, &mut t.zoom_paused, l("Clicks don't zoom while paused; the rest keeps working", "Los clics no acercan mientras está en pausa; lo demás sigue"));
+                changed |= c;
+                if k {
+                    set_key = Some(Action::Zoom);
+                }
+                let (c, k) = switch_row(ui, l("Hold", "Fijar"), &hold_key, &mut t.zoom_held, l("Keeps the zoom still where it is (or zooms in at the cursor) until you release it", "Deja el zoom quieto donde está (o acerca en el cursor) hasta que lo sueltes"));
+                changed |= c;
+                if k {
+                    set_key = Some(Action::Hold);
+                }
             }
             changed |= part_row(ui, l("Smooth cursor", "Cursor suave"), l("Glides instead of jumping", "Se desliza en vez de saltar"), &mut t.smooth_cursor, "tut-smooth");
             changed |= part_row(ui, l("Shortcut banner", "Aviso de atajos"), l("Shows Ctrl, Alt and Win shortcuts. Never what you type.", "Muestra atajos con Ctrl, Alt y Win. Nunca lo que escribes."), &mut t.keys, "tut-keys");
@@ -93,6 +108,9 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
     if changed {
         app.settings_changed();
     }
+    if let Some(a) = set_key {
+        app.capturing = if app.capturing == Some(a) { None } else { Some(a) };
+    }
     if look {
         let t = crate::templates::find(crate::templates::tutorial_name()).unwrap_or_else(|| {
             let t = crate::templates::tutorial_scene();
@@ -103,21 +121,40 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
     }
 }
 
-/// A small switch under a part, with its shortcut.
-fn switch_row(ui: &mut Ui, label: &str, key: &str, on: &mut bool, tip: &str) -> bool {
+/// A small switch under a part, with its shortcut: (combo, being set).
+/// Returns (switch changed, shortcut clicked).
+fn switch_row(ui: &mut Ui, label: &str, key: &(String, bool), on: &mut bool, tip: &str) -> (bool, bool) {
     ui.horizontal(|ui| {
         ui.set_min_height(28.0);
         ui.add_space(44.0);
         ui.label(egui::RichText::new(label).color(if *on { ORANGE } else { MUTED }).size(12.0));
-        let hint = if key.is_empty() { l("Set a shortcut in Settings → Shortcuts", "Pon un atajo en Ajustes → Atajos").to_string() } else { crate::t!("Shortcut: {}", "Atajo: {}", key) };
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let c = toggle(ui, on).on_hover_text(tip).changed();
-            ui.label(egui::RichText::new(hint).color(MUTED).size(11.0));
-            c
+            ui.add_space(4.0);
+            (c, shortcut_chip(ui, key))
         })
         .inner
     })
     .inner
+}
+
+/// The shortcut as a small button: click it, then press the new keys.
+fn shortcut_chip(ui: &mut Ui, (combo, capturing): &(String, bool)) -> bool {
+    let text = if *capturing {
+        l("Press the keys…", "Presiona las teclas…").to_string()
+    } else if combo.is_empty() {
+        l("Set shortcut", "Poner atajo").to_string()
+    } else {
+        combo.clone()
+    };
+    let b = egui::Button::new(egui::RichText::new(text).size(11.0).color(if *capturing { ORANGE } else { TEXT })).min_size(vec2(0.0, 22.0)).corner_radius(11.0);
+    let b = if *capturing { b.fill(Color32::from_rgb(40, 24, 10)).stroke(Stroke::new(1.0, ORANGE)) } else { b };
+    let tip = if *capturing {
+        l("Esc cancels, Backspace turns it off", "Esc cancela, Retroceso lo apaga")
+    } else {
+        l("Click to change the shortcut", "Haz clic para cambiar el atajo")
+    };
+    ui.add(b).on_hover_text(tip).clicked()
 }
 
 /// The ring's color: the brand's, a few presets, or any color.
