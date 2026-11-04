@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Fixed
+- Buttons work while recording or live when Chisme is on a different monitor than the one being captured. Chisme only hides itself from the capture when its window is on the captured screen; on some PCs that hiding draws the window offset from where clicks land.
+
 ## [0.8.0] - 2026-11-03
 
 ### Added
