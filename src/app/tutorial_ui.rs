@@ -12,10 +12,24 @@ use crate::tutorial::{Apply, Part};
 
 /// The card's height when open.
 pub(super) const OPEN_H: f32 = 430.0;
+/// While live: just the switches and shortcuts.
+const LIVE_H: f32 = 336.0;
+
+/// While live the card shows only the switches and shortcuts (no color,
+/// size, strength or Tutorial look).
+fn compact(app: &App) -> bool {
+    app.status.streams.iter().any(|s| s.live)
+}
 
 /// Its height now.
 pub(super) fn height(app: &App) -> f32 {
-    if app.settings.fold_tutorial { FOLDED_H } else { OPEN_H }
+    if app.settings.fold_tutorial {
+        FOLDED_H
+    } else if compact(app) {
+        LIVE_H
+    } else {
+        OPEN_H
+    }
 }
 
 /// A part's row: its switch, name and (while on) where it goes.
@@ -63,6 +77,7 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
     let mut changed = false;
     let mut look = false;
     let mut set_key = None;
+    let compact = compact(app);
     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
         ScrollArea::vertical().id_salt("tutorial-card").max_height(inner.height()).auto_shrink([false; 2]).show(ui, |ui| {
             if !app.settings.tutorial.enabled {
@@ -75,16 +90,18 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
             let (zoom_key, hold_key) = (key(Action::Zoom), key(Action::Hold));
             let t = &mut app.settings.tutorial;
             changed |= part_row(ui, l("Click effects", "Efecto en clics"), l("A ring on each click", "Un anillo en cada clic"), &mut t.clicks, "tut-clicks");
-            if t.clicks.on {
+            if t.clicks.on && !compact {
                 changed |= color_row(ui, &mut t.ring_color, brand);
             }
             changed |= part_row(ui, l("Bigger cursor", "Cursor más grande"), l("Hides while the mouse rests", "Se oculta cuando el mouse no se mueve"), &mut t.big_cursor, "tut-big");
-            if t.big_cursor.on {
+            if t.big_cursor.on && !compact {
                 changed |= slider_row(ui, l("Size", "Tamaño"), &mut t.cursor_size);
             }
             changed |= part_row(ui, l("Auto zoom", "Zoom automático"), l("Zooms in where you click or type, and back out when you stop", "Acerca donde haces clic o escribes, y se aleja cuando paras"), &mut t.zoom, "tut-zoom");
             if t.zoom.on {
-                changed |= slider_row(ui, l("Strength", "Intensidad"), &mut t.zoom_strength);
+                if !compact {
+                    changed |= slider_row(ui, l("Strength", "Intensidad"), &mut t.zoom_strength);
+                }
                 let (c, k) = switch_row(ui, l("Pause", "Pausar"), &zoom_key, &mut t.zoom_paused, l("Clicks don't zoom while paused; the rest keeps working", "Los clics no acercan mientras está en pausa; lo demás sigue"));
                 changed |= c;
                 if k {
@@ -98,6 +115,9 @@ pub(super) fn card(app: &mut App, ui: &mut Ui, card: Rect) {
             }
             changed |= part_row(ui, l("Smooth cursor", "Cursor suave"), l("Glides instead of jumping", "Se desliza en vez de saltar"), &mut t.smooth_cursor, "tut-smooth");
             changed |= part_row(ui, l("Shortcut banner", "Aviso de atajos"), l("Shows Ctrl, Alt and Win shortcuts. Never what you type.", "Muestra atajos con Ctrl, Alt y Win. Nunca lo que escribes."), &mut t.keys, "tut-keys");
+            if compact {
+                return;
+            }
             ui.add_space(6.0);
             look = ui
                 .add_sized([inner.width().min(240.0), 30.0], egui::Button::new(egui::RichText::new(l("Use the Tutorial look", "Usar el estilo Tutorial")).size(13.0)))

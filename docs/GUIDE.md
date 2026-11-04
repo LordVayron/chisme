@@ -101,6 +101,8 @@ the recording, the stream or both:
   pressed without them only count as "typing" for the zoom; their names are never kept or shown.
 - **Pause and Hold shortcuts:** click the shortcut next to Pause or Hold in the card and press the
   new keys (Esc cancels, Backspace turns it off). It's the same setting as Settings → Shortcuts.
+- **While live:** going live opens Live audio and Tutorial mode, folds Layers and shows only the
+  card's switches and shortcuts; the cards go back as they were 5 s after the stream ends.
 
 How it works: `win/input.rs` watches the mouse and keyboard on a worker thread (cursor position
 and picture, button and key state), as fractions of the captured display or window. `tutorial.rs`

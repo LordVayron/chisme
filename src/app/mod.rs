@@ -200,6 +200,10 @@ pub struct App {
     /// and a platform has been on since.
     pub rec_by_live: bool,
     pub live_seen: bool,
+    /// The Studio's card folds from before going live (audio, tutorial,
+    /// side card), put back once the stream has been off for a few seconds.
+    live_folds: Option<(bool, bool, bool)>,
+    live_off_at: Option<std::time::Instant>,
     pub live_rec_at: std::time::Instant,
     /// When the app started (tests).
     pub started: std::time::Instant,
@@ -247,7 +251,9 @@ impl App {
             settings.media_pack = 2;
             let _ = settings.save();
         }
-        let keys = Platform::ALL.iter().map(|p| (*p, crate::win::creds::get(p.id()).unwrap_or_default())).collect();
+        // CHISME_STREAM_KEY stands in for every key (tests), as in `chisme record --stream`.
+        let test_key = std::env::var("CHISME_STREAM_KEY").ok().filter(|k| !k.is_empty());
+        let keys = Platform::ALL.iter().map(|p| (*p, test_key.clone().or_else(|| crate::win::creds::get(p.id())).unwrap_or_default())).collect();
         // Look for a newer version at most once a day (always while one was
         // found and not installed yet).
         let update = crate::update::Shared::default();
@@ -327,6 +333,8 @@ impl App {
             end_live_ask: false,
             rec_by_live: false,
             live_seen: false,
+            live_folds: None,
+            live_off_at: None,
             live_rec_at: std::time::Instant::now(),
             started: std::time::Instant::now(),
             guest_thumbs: Default::default(),
@@ -730,6 +738,35 @@ impl App {
     }
 
     /// Save settings; restart the capture if needed (never mid-recording).
+    /// Going live opens Live audio and Tutorial mode and folds the layer
+    /// editor; when the stream ends (and stays off 5 s, past a reconnect)
+    /// the cards go back as they were.
+    fn arrange_for_live(&mut self) {
+        let live = self.status.streams.iter().any(|s| s.live);
+        let s = &mut self.settings;
+        match self.live_folds {
+            None if live => {
+                self.live_folds = Some((s.fold_audio, s.fold_tutorial, s.fold_camera));
+                s.fold_audio = false;
+                s.fold_tutorial = false;
+                if s.layout.is_some() && s.template.is_none() {
+                    s.fold_camera = true;
+                }
+                let _ = s.save();
+            }
+            Some((audio, tutorial, side)) if !live => {
+                let off = *self.live_off_at.get_or_insert_with(std::time::Instant::now);
+                if off.elapsed().as_secs() >= 5 {
+                    (s.fold_audio, s.fold_tutorial, s.fold_camera) = (audio, tutorial, side);
+                    let _ = s.save();
+                    self.live_folds = None;
+                    self.live_off_at = None;
+                }
+            }
+            _ => self.live_off_at = None,
+        }
+    }
+
     pub fn settings_changed(&mut self) {
         let _ = self.settings.save();
         if let Some(e) = &self.engine {
@@ -816,6 +853,8 @@ impl App {
                 self.rec_by_live = false;
             }
         }
+        // Cards for going live (by the last frame's status).
+        self.arrange_for_live();
         // Engine status and preview.
         if let Some(e) = &self.engine {
             self.status = e.status();
